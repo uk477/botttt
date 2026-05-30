@@ -5,6 +5,7 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { ENV } from "./env.js";
+import { settings } from "./db.js";
 import authRouter from "./routes/auth.js";
 import ordersRouter from "./routes/orders.js";
 import notifyRouter from "./routes/notify.js";
@@ -114,6 +115,12 @@ app.get("/{*splat}", (_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.sendFile(path.join(DIST, "index.html"));
 });
+
+// Load persisted wallet addresses from SQLite
+for (const net of Object.keys(ENV.addr)) {
+  const saved = settings.get(`addr_${net}`);
+  if (saved) ENV.setAddr(net, saved);
+}
 
 // ── Start ───────────────────────────────────────────────────────────
 app.listen(ENV.port, () => {

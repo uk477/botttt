@@ -1,4 +1,4 @@
-import { orders, transactions, users, type OrderRow } from "../db.js";
+import { orders, transactions, users, adminLogs, type OrderRow } from "../db.js";
 import { notifyAdmin, notifyUserWithButton } from "../telegram.js";
 
 export interface IncomingTx {
@@ -55,6 +55,18 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
             users.credit(order.uid, order.amount_usd);
             console.log(`[matcher] CREDITED uid=${order.uid} +$${order.amount_usd}`);
           }
+
+          const u = users.get(order.uid);
+          adminLogs.add({
+            type: "payment",
+            uid: order.uid,
+            username: u?.username ?? null,
+            kind: order.kind,
+            amount: order.amount_usd,
+            network: order.network,
+            status: "success",
+            tx_hash: tx.tx_hash,
+          });
 
           const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 

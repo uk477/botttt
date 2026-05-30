@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import ConfirmSheet from '../components/ConfirmSheet'
@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
 import type { Product } from '../store/types'
 import AccountsPoolEditor from './AccountsPoolEditor'
+import { api } from '../store/api'
 
 const EMPTY: Product = {
   id: 0, cat_id: 1,
@@ -25,7 +26,12 @@ export default function AdminProducts() {
   const pinned = useStore((s) => s.pinnedProductIds)
   const pinProduct = useStore((s) => s.pinProduct)
   const unpinProduct = useStore((s) => s.unpinProduct)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const toast = useToast()
+
+  useEffect(() => {
+    syncAdminData()
+  }, [syncAdminData])
   const { haptic } = useTelegram()
   const [editing, setEditing] = useState<Product | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null)

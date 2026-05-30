@@ -286,6 +286,9 @@ export const orders = {
   getAllPending(): OrderRow[] {
     return stmts.getAllPending.all() as OrderRow[];
   },
+  getAll(limit = 500): OrderRow[] {
+    return db.prepare(`SELECT * FROM orders ORDER BY created_at DESC LIMIT ?`).all(limit) as OrderRow[];
+  },
   markPaid(id: string, txHash: string) {
     stmts.markPaid.run({ id, tx_hash: txHash });
   },
@@ -343,6 +346,320 @@ export const gameScores = {
   },
   get(uid: number) {
     return gameStmts.getByUid.get(uid) as { uid: number; name: string; score: number; ts: string } | undefined;
+  },
+};
+
+// ── Products & Categories ────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS products (
+    id            INTEGER PRIMARY KEY,
+    cat_id        INTEGER NOT NULL DEFAULT 1,
+    title         TEXT NOT NULL DEFAULT '',
+    title_en      TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    desc_en       TEXT NOT NULL DEFAULT '',
+    price         REAL NOT NULL DEFAULT 0,
+    delivery      TEXT NOT NULL DEFAULT 'auto',
+    stock         INTEGER NOT NULL DEFAULT 0,
+    active        INTEGER NOT NULL DEFAULT 1,
+    auto_items    TEXT NOT NULL DEFAULT '[]',
+    pinned        INTEGER NOT NULL DEFAULT 0,
+    image_url     TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS categories (
+    id        INTEGER PRIMARY KEY,
+    name      TEXT NOT NULL DEFAULT '',
+    name_en   TEXT NOT NULL DEFAULT '',
+    emoji     TEXT NOT NULL DEFAULT '',
+    active    INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS broadcasts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    text       TEXT NOT NULL,
+    sent_to    INTEGER NOT NULL DEFAULT 0,
+    failed     INTEGER NOT NULL DEFAULT 0,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS support_tickets (
+    id         TEXT PRIMARY KEY,
+    uid        INTEGER NOT NULL,
+    category   TEXT NOT NULL DEFAULT 'general',
+    status     TEXT NOT NULL DEFAULT 'open',
+    summary    TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at  TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS support_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id  TEXT,
+    uid        INTEGER NOT NULL,
+    sender     TEXT NOT NULL DEFAULT 'user',
+    kind       TEXT NOT NULL DEFAULT 'text',
+    text       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    read_by_admin INTEGER NOT NULL DEFAULT 0,
+    read_by_user  INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_sm_uid ON support_messages(uid);
+
+  CREATE TABLE IF NOT EXISTS admin_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    type       TEXT NOT NULL DEFAULT 'info',
+    uid        INTEGER,
+    username   TEXT,
+    kind       TEXT,
+    amount     REAL,
+    network    TEXT,
+    status     TEXT NOT NULL DEFAULT 'success',
+    tx_hash    TEXT,
+    product    TEXT,
+    details    TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+const productStmts = {
+  getAll: db.prepare(`SELECT * FROM products ORDER BY created_at DESC`),
+  get: db.prepare(`SELECT * FROM products WHERE id = ?`),
+  upsert: db.prepare(`
+    INSERT INTO products (id, cat_id, title, title_en, description, desc_en, price, delivery, stock, active, auto_items, pinned, image_url)
+    VALUES (@id, @cat_id, @title, @title_en, @description, @desc_en, @price, @delivery, @stock, @active, @auto_items, @pinned, @image_url)
+    ON CONFLICT(id) DO UPDATE SET
+      cat_id = excluded.cat_id, title = excluded.title, title_en = excluded.title_en,
+      description = excluded.description, desc_en = excluded.desc_en,
+      price = excluded.price, delivery = excluded.delivery, stock = excluded.stock,
+      active = excluded.active, auto_items = excluded.auto_items, pinned = excluded.pinned,
+      image_url = excluded.image_url
+  `),
+  del: db.prepare(`DELETE FROM products WHERE id = ?`),
+};
+
+const categoryStmts = {
+  getAll: db.prepare(`SELECT * FROM categories ORDER BY sort_order, id`),
+  upsert: db.prepare(`
+    INSERT INTO categories (id, name, name_en, emoji, active, sort_order)
+    VALUES (@id, @name, @name_en, @emoji, @active, @sort_order)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name, name_en = excluded.name_en, emoji = excluded.emoji,
+      active = excluded.active, sort_order = excluded.sort_order
+  `),
+  del: db.prepare(`DELETE FROM categories WHERE id = ?`),
+};
+
+const broadcastStmts = {
+  insert: db.prepare(`INSERT INTO broadcasts (text, sent_to, failed, status) VALUES (@text, @sent_to, @failed, @status)`),
+  getAll: db.prepare(`SELECT * FROM broadcasts ORDER BY created_at DESC LIMIT 100`),
+};
+
+const logStmts = {
+  insert: db.prepare(`
+    INSERT INTO admin_logs (type, uid, username, kind, amount, network, status, tx_hash, product, details)
+    VALUES (@type, @uid, @username, @kind, @amount, @network, @status, @tx_hash, @product, @details)
+  `),
+  getAll: db.prepare(`SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 500`),
+};
+
+const supportStmts = {
+  getTickets: db.prepare(`SELECT * FROM support_tickets ORDER BY created_at DESC LIMIT 200`),
+  upsertTicket: db.prepare(`
+    INSERT INTO support_tickets (id, uid, category, status, summary)
+    VALUES (@id, @uid, @category, @status, @summary)
+    ON CONFLICT(id) DO UPDATE SET status = excluded.status, closed_at = excluded.closed_at
+  `),
+  getMessages: db.prepare(`SELECT * FROM support_messages WHERE uid = ? ORDER BY created_at`),
+  getAllMessages: db.prepare(`SELECT * FROM support_messages ORDER BY created_at DESC LIMIT 1000`),
+  insertMessage: db.prepare(`
+    INSERT INTO support_messages (ticket_id, uid, sender, kind, text)
+    VALUES (@ticket_id, @uid, @sender, @kind, @text)
+  `),
+};
+
+export interface ProductRow {
+  id: number;
+  cat_id: number;
+  title: string;
+  title_en: string;
+  description: string;
+  desc_en: string;
+  price: number;
+  delivery: string;
+  stock: number;
+  active: number;
+  auto_items: string;
+  pinned: number;
+  image_url: string | null;
+  created_at: string;
+}
+
+export interface CategoryRow {
+  id: number;
+  name: string;
+  name_en: string;
+  emoji: string;
+  active: number;
+  sort_order: number;
+}
+
+export interface BroadcastRow {
+  id: number;
+  text: string;
+  sent_to: number;
+  failed: number;
+  status: string;
+  created_at: string;
+}
+
+export interface AdminLogRow {
+  id: number;
+  type: string;
+  uid: number | null;
+  username: string | null;
+  kind: string | null;
+  amount: number | null;
+  network: string | null;
+  status: string;
+  tx_hash: string | null;
+  product: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+export const products = {
+  getAll(): ProductRow[] {
+    return productStmts.getAll.all() as ProductRow[];
+  },
+  get(id: number): ProductRow | undefined {
+    return productStmts.get.get(id) as ProductRow | undefined;
+  },
+  upsert(p: {
+    id: number; cat_id: number; title: string; title_en: string;
+    description: string; desc_en: string; price: number; delivery: string;
+    stock: number; active: boolean; auto_items: string[]; pinned: boolean;
+    image_url?: string | null;
+  }) {
+    productStmts.upsert.run({
+      ...p,
+      active: p.active ? 1 : 0,
+      pinned: p.pinned ? 1 : 0,
+      auto_items: JSON.stringify(p.auto_items ?? []),
+      image_url: p.image_url ?? null,
+    });
+  },
+  delete(id: number) {
+    productStmts.del.run(id);
+  },
+};
+
+export const categories = {
+  getAll(): CategoryRow[] {
+    return categoryStmts.getAll.all() as CategoryRow[];
+  },
+  upsert(c: { id: number; name: string; name_en: string; emoji: string; active: boolean; sort_order?: number }) {
+    categoryStmts.upsert.run({
+      ...c,
+      active: c.active ? 1 : 0,
+      sort_order: c.sort_order ?? 0,
+    });
+  },
+  delete(id: number) {
+    categoryStmts.del.run(id);
+  },
+};
+
+export const broadcasts = {
+  create(b: { text: string; sent_to: number; failed: number; status: string }) {
+    broadcastStmts.insert.run(b);
+  },
+  getAll(): BroadcastRow[] {
+    return broadcastStmts.getAll.all() as BroadcastRow[];
+  },
+};
+
+export const adminLogs = {
+  add(log: {
+    type?: string; uid?: number | null; username?: string | null;
+    kind?: string | null; amount?: number | null; network?: string | null;
+    status?: string; tx_hash?: string | null; product?: string | null;
+    details?: string | null;
+  }) {
+    logStmts.insert.run({
+      type: log.type ?? 'info',
+      uid: log.uid ?? null,
+      username: log.username ?? null,
+      kind: log.kind ?? null,
+      amount: log.amount ?? null,
+      network: log.network ?? null,
+      status: log.status ?? 'success',
+      tx_hash: log.tx_hash ?? null,
+      product: log.product ?? null,
+      details: log.details ?? null,
+    });
+  },
+  getAll(): AdminLogRow[] {
+    return logStmts.getAll.all() as AdminLogRow[];
+  },
+};
+
+export const support = {
+  getTickets() {
+    return supportStmts.getTickets.all();
+  },
+  upsertTicket(t: { id: string; uid: number; category: string; status: string; summary?: string | null; closed_at?: string | null }) {
+    supportStmts.upsertTicket.run({ ...t, summary: t.summary ?? null, closed_at: t.closed_at ?? null });
+  },
+  getMessages(uid: number) {
+    return supportStmts.getMessages.all(uid);
+  },
+  getAllMessages() {
+    return supportStmts.getAllMessages.all();
+  },
+  addMessage(m: { ticket_id?: string | null; uid: number; sender: string; kind?: string; text: string }) {
+    supportStmts.insertMessage.run({
+      ticket_id: m.ticket_id ?? null,
+      uid: m.uid,
+      sender: m.sender,
+      kind: m.kind ?? 'text',
+      text: m.text,
+    });
+  },
+};
+
+export const allUsers = {
+  getAll(): UserRow[] {
+    return db.prepare(`SELECT * FROM users ORDER BY created_at DESC LIMIT 500`).all() as UserRow[];
+  },
+  count(): number {
+    return (db.prepare(`SELECT COUNT(*) as cnt FROM users`).get() as { cnt: number }).cnt;
+  },
+};
+
+export const stats = {
+  summary() {
+    const totalUsers = (db.prepare(`SELECT COUNT(*) as cnt FROM users`).get() as { cnt: number }).cnt;
+    const totalRevenue = (db.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as total FROM orders WHERE kind='buy' AND (status='completed' OR status='paid')`).get() as { total: number }).total;
+    const totalOrders = (db.prepare(`SELECT COUNT(*) as cnt FROM orders WHERE kind='buy' AND (status='completed' OR status='paid')`).get() as { cnt: number }).cnt;
+    const pendingOrders = (db.prepare(`SELECT COUNT(*) as cnt FROM orders WHERE status='pending'`).get() as { cnt: number }).cnt;
+    return { totalUsers, totalRevenue, totalOrders, pendingOrders };
+  },
+  ordersByPeriod(since: string) {
+    return db.prepare(`
+      SELECT * FROM orders WHERE kind='buy' AND (status='completed' OR status='paid') AND created_at >= ?
+      ORDER BY created_at DESC
+    `).all(since) as OrderRow[];
+  },
+  allCompletedOrders() {
+    return db.prepare(`
+      SELECT * FROM orders WHERE kind='buy' AND (status='completed' OR status='paid')
+      ORDER BY created_at DESC LIMIT 500
+    `).all() as OrderRow[];
   },
 };
 

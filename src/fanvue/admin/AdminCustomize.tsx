@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore, CRYPTO_OPTIONS } from '../store'
@@ -274,7 +274,12 @@ function RefCoinSelector() {
 
 export default function AdminCustomize() {
   const lang = useStore((s) => s.lang)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const [tab, setTab] = useState<Tab>('links')
+
+  useEffect(() => {
+    syncAdminData()
+  }, [syncAdminData])
 
   return (
     <PageTransition>

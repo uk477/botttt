@@ -1,7 +1,22 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyUser } from "../telegram.js";
-import { orders, users, settings, refWithdrawals } from "../db.js";
+import { verifyInitData, isAdmin, notifyUser, notifyUserWithButton } from "../telegram.js";
+import {
+  orders,
+  users,
+  settings,
+  refWithdrawals,
+  products,
+  categories,
+  broadcasts,
+  adminLogs,
+  support,
+  allUsers,
+  stats,
+  type ProductRow,
+  type CategoryRow,
+  type AdminLogRow,
+} from "../db.js";
 import { ENV } from "../env.js";
 
 const router = Router();
@@ -17,11 +32,67 @@ function requireAdmin(req: Request, res: Response): number | null {
   return user.id;
 }
 
+function mapProduct(p: ProductRow) {
+  let autoItems: string[] = [];
+  try {
+    autoItems = JSON.parse(p.auto_items || "[]");
+  } catch {
+    autoItems = [];
+  }
+  return {
+    id: p.id,
+    cat_id: p.cat_id,
+    title: p.title,
+    title_en: p.title_en,
+    description: p.description,
+    desc_en: p.desc_en,
+    price: p.price,
+    delivery: p.delivery as "auto" | "manual",
+    stock: p.stock,
+    active: !!p.active,
+    autoItems,
+    image_url: p.image_url ?? undefined,
+  };
+}
+
+function mapCategory(c: CategoryRow) {
+  return {
+    id: c.id,
+    name: c.name,
+    name_en: c.name_en,
+    emoji: c.emoji,
+    active: !!c.active,
+  };
+}
+
+function mapLog(l: AdminLogRow) {
+  return {
+    id: l.id,
+    ts: l.created_at,
+    uid: l.uid ?? 0,
+    username: l.username ?? "",
+    kind: l.kind ?? "info",
+    amount: l.amount ?? 0,
+    network: l.network ?? undefined,
+    status: l.status,
+    tx_hash: l.tx_hash ?? undefined,
+    product: l.product ?? undefined,
+  };
+}
+
+// ── Public products (catalog) ────────────────────────────────────
+router.get("/api/products", (_req: Request, res: Response) => {
+  const prods = products.getAll().filter((p) => p.active).map(mapProduct);
+  const cats = categories.getAll().filter((c) => c.active).map(mapCategory);
+  const pinned = products.getAll().filter((p) => p.pinned).map((p) => p.id);
+  res.json({ products: prods, categories: cats, pinned });
+});
+
 // ── Admin Orders ─────────────────────────────────────────────────
 router.get("/api/admin/orders", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   orders.expireOld();
-  const all = orders.getAllPending();
+  const all = req.query.all === "1" ? orders.getAll() : orders.getAllPending();
   res.json(all);
 });
 
@@ -43,10 +114,32 @@ router.delete("/api/admin/order/:id", (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// ── Admin Stats ──────────────────────────────────────────────────
+router.get("/api/admin/stats", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const summary = stats.summary();
+  const logs = adminLogs.getAll().slice(0, 50).map(mapLog);
+  res.json({ ...summary, logs });
+});
+
 // ── Admin Users ──────────────────────────────────────────────────
 router.get("/api/admin/users", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  res.json([]);
+  const rows = allUsers.getAll();
+  res.json(
+    rows.map((u) => ({
+      uid: u.uid,
+      username: u.username ?? "",
+      full_name: u.full_name ?? "",
+      balance: u.balance,
+      ref_balance: u.ref_balance,
+      ref_earned: u.ref_earned,
+      ref_count: u.ref_count,
+      spent: u.spent,
+      purchases: u.purchases,
+      last_seen: u.created_at,
+    })),
+  );
 });
 
 router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
@@ -63,11 +156,153 @@ router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
   res.json({ ok: true, balance: updated?.balance ?? 0 });
 });
 
-// ── Admin Settings (wallet addresses, ref withdraw networks, site config) ──
+// ── Admin Products ─────────────────────────────────────────────────
+router.get("/api/admin/products", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const prods = products.getAll().map(mapProduct);
+  const cats = categories.getAll().map(mapCategory);
+  const pinned = products.getAll().filter((p) => p.pinned).map((p) => p.id);
+  res.json({ products: prods, categories: cats, pinned });
+});
+
+router.post("/api/admin/product", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const b = req.body as Record<string, unknown>;
+  const id = Number(b.id) || Date.now();
+  if (!b.title || typeof b.title !== "string") {
+    res.status(400).json({ error: "Invalid product" }); return;
+  }
+  products.upsert({
+    id,
+    cat_id: Number(b.cat_id) || 1,
+    title: String(b.title),
+    title_en: String(b.title_en ?? ""),
+    description: String(b.description ?? ""),
+    desc_en: String(b.desc_en ?? ""),
+    price: Number(b.price) || 0,
+    delivery: String(b.delivery ?? "auto"),
+    stock: Number(b.stock) || 0,
+    active: b.active !== false,
+    auto_items: Array.isArray(b.autoItems) ? (b.autoItems as string[]) : [],
+    pinned: !!b.pinned,
+    image_url: typeof b.image_url === "string" ? b.image_url : null,
+  });
+  res.json({ ok: true, id });
+});
+
+router.delete("/api/admin/product/:id", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  products.delete(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+function upsertFromRow(p: ProductRow, pinned: boolean) {
+  let autoItems: string[] = [];
+  try {
+    autoItems = JSON.parse(p.auto_items || "[]");
+  } catch {
+    autoItems = [];
+  }
+  products.upsert({
+    id: p.id,
+    cat_id: p.cat_id,
+    title: p.title,
+    title_en: p.title_en,
+    description: p.description,
+    desc_en: p.desc_en,
+    price: p.price,
+    delivery: p.delivery,
+    stock: p.stock,
+    active: !!p.active,
+    auto_items: autoItems,
+    pinned,
+    image_url: p.image_url,
+  });
+}
+
+router.post("/api/admin/product/:id/pin", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const p = products.get(Number(req.params.id));
+  if (!p) { res.status(404).json({ error: "Not found" }); return; }
+  upsertFromRow(p, true);
+  res.json({ ok: true });
+});
+
+router.delete("/api/admin/product/:id/pin", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const p = products.get(Number(req.params.id));
+  if (!p) { res.status(404).json({ error: "Not found" }); return; }
+  upsertFromRow(p, false);
+  res.json({ ok: true });
+});
+
+router.post("/api/admin/category", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const b = req.body as Record<string, unknown>;
+  categories.upsert({
+    id: Number(b.id) || Date.now(),
+    name: String(b.name ?? ""),
+    name_en: String(b.name_en ?? ""),
+    emoji: String(b.emoji ?? ""),
+    active: b.active !== false,
+    sort_order: Number(b.sort_order) || 0,
+  });
+  res.json({ ok: true });
+});
+
+// ── Admin Broadcast ────────────────────────────────────────────────
+const broadcastLimiter = rateLimit({ windowMs: 300_000, max: 3 });
+
+router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const { text } = req.body as { text?: string };
+  if (!text || typeof text !== "string" || text.length > 4096) {
+    res.status(400).json({ error: "Invalid text" }); return;
+  }
+
+  const userRows = allUsers.getAll();
+  let sent = 0;
+  let failed = 0;
+
+  for (const u of userRows) {
+    const ok = await notifyUserWithButton(u.uid, text);
+    if (ok) sent++;
+    else failed++;
+    await new Promise((r) => setTimeout(r, 35));
+  }
+
+  broadcasts.create({ text, sent_to: sent, failed, status: "completed" });
+  res.json({ ok: true, sent_to: sent, failed });
+});
+
+router.get("/api/admin/broadcasts", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const rows = broadcasts.getAll();
+  res.json(
+    rows.map((b) => ({
+      id: b.id,
+      text: b.text,
+      sent_to: b.sent_to,
+      ts: b.created_at,
+    })),
+  );
+});
+
+// ── Admin Settings ─────────────────────────────────────────────────
 router.get("/api/admin/settings", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   const all = settings.getAll();
-  res.json({ ...all, addresses: ENV.addr });
+  const parsed: Record<string, unknown> = { ...all, addresses: ENV.addr };
+  for (const key of ["refWithdrawNetworks", "siteLinks", "siteContent", "photos", "qrOverrides", "maintenance"]) {
+    if (all[key]) {
+      try {
+        parsed[key] = JSON.parse(all[key]);
+      } catch {
+        parsed[key] = all[key];
+      }
+    }
+  }
+  res.json(parsed);
 });
 
 router.post("/api/admin/settings", (req: Request, res: Response) => {
@@ -76,16 +311,21 @@ router.post("/api/admin/settings", (req: Request, res: Response) => {
 
   if (body.addresses && typeof body.addresses === "object") {
     for (const [net, addr] of Object.entries(body.addresses as Record<string, string>)) {
-      if (typeof addr === "string" && addr.length < 200) {
+      if (typeof addr === "string" && addr.length < 500) {
         ENV.setAddr(net, addr);
+        settings.set(`addr_${net}`, addr);
       }
     }
   }
 
   const allowedKeys = [
     "refWithdrawNetworks",
-    "siteLinks", "siteContent",
+    "siteLinks",
+    "siteContent",
     "customization",
+    "photos",
+    "qrOverrides",
+    "maintenance",
   ];
   for (const key of allowedKeys) {
     if (body[key] !== undefined) {
@@ -93,6 +333,61 @@ router.post("/api/admin/settings", (req: Request, res: Response) => {
     }
   }
 
+  res.json({ ok: true });
+});
+
+// ── Admin Support ──────────────────────────────────────────────────
+router.get("/api/admin/support", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const tickets = support.getTickets();
+  const messages = support.getAllMessages();
+  res.json({ tickets, messages });
+});
+
+router.post("/api/admin/support/:uid", async (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const uid = Number(req.params.uid);
+  const { text } = req.body as { text?: string };
+  if (!uid || !text || typeof text !== "string") {
+    res.status(400).json({ error: "Invalid" }); return;
+  }
+  support.addMessage({ uid, sender: "admin", text });
+  await notifyUserWithButton(uid, text);
+  res.json({ ok: true });
+});
+
+// User support API
+router.get("/api/support/messages", (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const rows = support.getMessages(user.id) as {
+    id: number; uid: number; sender: string; kind: string; text: string; created_at: string;
+    read_by_admin: number; read_by_user: number; ticket_id: string | null;
+  }[];
+  res.json({
+    messages: rows.map((m) => ({
+      id: m.id,
+      sender: m.sender,
+      kind: m.kind,
+      text: m.text,
+      created: m.created_at,
+      read_by_admin: !!m.read_by_admin,
+      read_by_user: !!m.read_by_user,
+      ticket_id: m.ticket_id ?? undefined,
+    })),
+  });
+});
+
+router.post("/api/support/message", async (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { text } = req.body as { text?: string };
+  if (!text || typeof text !== "string" || text.length > 4000) {
+    res.status(400).json({ error: "Invalid text" }); return;
+  }
+  support.addMessage({ uid: user.id, sender: "user", text });
   res.json({ ok: true });
 });
 
@@ -166,7 +461,7 @@ router.patch("/api/admin/ref-withdrawal/:id", (req: Request, res: Response) => {
 // ── Admin Logs ───────────────────────────────────────────────────
 router.get("/api/admin/logs", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  res.json([]);
+  res.json(adminLogs.getAll().map(mapLog));
 });
 
 export default router;

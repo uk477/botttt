@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import PageTransition from '../components/PageTransition'
+import { api } from '../store/api'
 
 /* ───── icons ───── */
 const Ic = {
@@ -92,9 +93,25 @@ export default function AdminDashboard() {
   const products = useStore((s) => s.products)
   const refW     = useStore((s) => s.refWithdrawals)
   const supportMessages = useStore((s) => s.supportMessages)
+  const syncAdminData = useStore((s) => s.syncAdminData)
 
   const [period, setPeriod] = useState<Period>('today')
   const [exportOpen, setExportOpen] = useState(false)
+  const [totalUsers, setTotalUsers] = useState<number | null>(null)
+
+  useEffect(() => {
+    syncAdminData()
+    if (api.isEnabled()) {
+      api.adminStats().then((res) => {
+        if (res && typeof res === 'object' && 'totalUsers' in res) {
+          setTotalUsers(Number((res as { totalUsers: number }).totalUsers))
+        }
+        if (res && typeof res === 'object' && Array.isArray((res as { logs?: unknown }).logs)) {
+          useStore.setState({ logs: (res as { logs: typeof logs }).logs })
+        }
+      })
+    }
+  }, [syncAdminData])
 
   const buys = useMemo(
     () => orders.filter((o) => o.kind === 'buy' && (o.status === 'completed' || o.status === 'paid')),
@@ -135,7 +152,7 @@ export default function AdminDashboard() {
     }).length
   })
 
-  const uniqueUsers  = new Set(logs.map((l) => l.uid)).size + 12
+  const uniqueUsers = totalUsers ?? new Set(logs.map((l) => l.uid)).size
   const pendingCount = orders.filter((o) => o.status === 'pending').length
 
   /* attention — only tickets awaiting admin reply */

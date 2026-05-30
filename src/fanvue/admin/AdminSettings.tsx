@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore, CRYPTO_OPTIONS } from '../store'
@@ -197,7 +197,12 @@ export default function AdminSettings() {
   const lang = useStore((s) => s.lang)
   const maintenance = useStore((s) => s.maintenance)
   const toggleMaintenance = useStore((s) => s.toggleMaintenance)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const toast = useToast()
+
+  useEffect(() => {
+    syncAdminData()
+  }, [syncAdminData])
 
   const handleToggle = () => {
     toggleMaintenance()

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import ConfirmSheet from '../components/ConfirmSheet'
@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
+import { api } from '../store/api'
 
 export default function AdminBroadcast() {
   const t = useT()
@@ -16,20 +17,48 @@ export default function AdminBroadcast() {
   const { haptic } = useTelegram()
   const [text, setText] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    if (!api.isEnabled()) return
+    api.adminBroadcasts().then((res) => {
+      if (Array.isArray(res) && res.length > 0) {
+        useStore.setState({
+          broadcasts: res as { id: number; text: string; sent_to: number; ts: string }[],
+        })
+      }
+    })
+  }, [])
 
   const handleSend = () => {
     if (!text.trim()) return
     setShowConfirm(true)
   }
 
-  const doSend = () => {
+  const doSend = async () => {
     const trimmed = text.trim()
-    haptic('success')
-    const sentTo = 247
-    addBroadcast(trimmed, sentTo)
-    toast.show(`${t('admin_broadcast_sent')}: ${sentTo}`, 'success')
-    setText('')
+    setSending(true)
     setShowConfirm(false)
+    try {
+      if (api.isEnabled()) {
+        const res = await api.adminBroadcast(trimmed)
+        if (!res || !res.ok) {
+          toast.show(lang === 'ru' ? 'Ошибка рассылки' : 'Broadcast failed', 'error')
+          setSending(false)
+          return
+        }
+        haptic('success')
+        addBroadcast(trimmed, res.sent_to)
+        toast.show(`${t('admin_broadcast_sent')}: ${res.sent_to}${res.failed ? ` (${res.failed} ${lang === 'ru' ? 'ошибок' : 'failed'})` : ''}`, 'success')
+      } else {
+        haptic('success')
+        addBroadcast(trimmed, 0)
+        toast.show(lang === 'ru' ? 'Нужен сервер (API) для рассылки' : 'Server API required for broadcast', 'error')
+      }
+      setText('')
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -51,7 +80,7 @@ export default function AdminBroadcast() {
           <motion.button
             className="btn btn-primary mt-4"
             onClick={handleSend}
-            disabled={!text.trim()}
+            disabled={!text.trim() || sending}
             whileTap={{ scale: 0.97 }}
           >
             📤 {t('admin_broadcast_send')}

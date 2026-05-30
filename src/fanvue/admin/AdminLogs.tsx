@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import type { PaymentLog } from '../store/types'
+import { api } from '../store/api'
 
 type LogFilter = 'all' | 'success' | 'failed'
 
@@ -30,8 +31,18 @@ export default function AdminLogs() {
   const t = useT()
   const lang = useStore((s) => s.lang)
   const logs = useStore((s) => s.logs)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const toast = useToast()
   const [filter, setFilter] = useState<LogFilter>('all')
+
+  useEffect(() => {
+    syncAdminData()
+    if (api.isEnabled()) {
+      api.adminLogs().then((res) => {
+        if (Array.isArray(res)) useStore.setState({ logs: res as PaymentLog[] })
+      })
+    }
+  }, [syncAdminData])
 
   const filtered = useMemo(() => {
     if (filter === 'all') return logs

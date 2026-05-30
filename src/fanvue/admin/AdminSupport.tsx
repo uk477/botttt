@@ -8,6 +8,9 @@ import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
 import { CONFIG } from '../config'
 import type { SupportMessage, SupportTicket } from '../store/types'
 import OrderReceiptMessage from '../components/OrderReceiptMessage'
+import { api } from '../store/api'
+
+type SupportMessageWithUid = SupportMessage & { uid?: number }
 
 /* ─────────── tokens ─────────── */
 const C = {
@@ -104,10 +107,63 @@ export default function AdminSupport() {
   const unreadCount = messages.filter((m) => m.sender === 'user' && !m.read_by_admin).length
   const activeTicket = tickets.find((tk) => tk.status !== 'closed')
 
-  const groups: ChatGroup[] = messages.length > 0 && lastMsg ? [{
-    uid: realUid, username: realName, full_name: realFull, photo_url: realPhoto,
-    messages, last: lastMsg, unread: unreadCount, activeTicket,
-  }] : []
+  const groups: ChatGroup[] = useMemo(() => {
+    const byUid = new Map<number, SupportMessageWithUid[]>()
+    for (const m of messages) {
+      const uid = (m as SupportMessageWithUid).uid ?? realUid
+      if (!uid) continue
+      const arr = byUid.get(uid) ?? []
+      arr.push(m as SupportMessageWithUid)
+      byUid.set(uid, arr)
+    }
+    if (byUid.size === 0 && messages.length > 0 && lastMsg) {
+      return [{
+        uid: realUid, username: realName, full_name: realFull, photo_url: realPhoto,
+        messages, last: lastMsg, unread: unreadCount, activeTicket,
+      }]
+    }
+    return [...byUid.entries()].map(([uid, msgs]) => {
+      const vis = msgs.filter((m) => m.kind !== 'system' || m.text.startsWith('ticket_'))
+      const last = vis[vis.length - 1] ?? msgs[msgs.length - 1]
+      const unread = msgs.filter((m) => m.sender === 'user' && !m.read_by_admin).length
+      const ticket = tickets.find((tk) => tk.status !== 'closed')
+      return {
+        uid,
+        username: uid === realUid ? realName : `user_${uid}`,
+        full_name: uid === realUid ? realFull : `User ${uid}`,
+        photo_url: uid === realUid ? realPhoto : undefined,
+        messages: msgs,
+        last,
+        unread,
+        activeTicket: ticket,
+      }
+    }).sort((a, b) => new Date(b.last.created).getTime() - new Date(a.last.created).getTime())
+  }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, activeTicket, lastMsg])
+
+  useEffect(() => {
+    if (!api.isEnabled()) return
+    api.adminSupport().then((res) => {
+      if (!res || typeof res !== 'object') return
+      const data = res as { messages?: Array<Record<string, unknown>>; tickets?: SupportTicket[] }
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        const mapped: SupportMessageWithUid[] = data.messages.map((m) => ({
+          id: Number(m.id),
+          sender: m.sender as SupportMessage['sender'],
+          kind: (m.kind as SupportMessage['kind']) || 'text',
+          text: String(m.text ?? ''),
+          created: String(m.created_at ?? m.created ?? new Date().toISOString()),
+          read_by_admin: !!m.read_by_admin,
+          read_by_user: !!m.read_by_user,
+          ticket_id: m.ticket_id ? String(m.ticket_id) : undefined,
+          uid: Number(m.uid),
+        }))
+        useStore.setState({ supportMessages: mapped })
+      }
+      if (Array.isArray(data.tickets)) {
+        useStore.setState({ supportTickets: data.tickets })
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (openUid && unreadCount > 0) {
@@ -209,10 +265,14 @@ export default function AdminSupport() {
     }
 
     haptic('success')
+    const targetUid = openUid ?? realUid
     addMsg({
       id: Date.now(), sender: 'admin', kind: 'text', text: trimmed,
       created: new Date().toISOString(), reply_to: replyTo?.id, ticket_id: activeTicket?.id,
     })
+    if (api.isEnabled() && targetUid) {
+      api.adminReply(targetUid, trimmed)
+    }
     setReply(''); setReplyTo(null)
     if (openUid) {
       notifyUserWithButton(

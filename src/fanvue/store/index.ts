@@ -72,13 +72,22 @@ const MOCK_ORDERS: Order[] = []
 // Empty by default — bot triage greeting will be shown
 const MOCK_SUPPORT: SupportMessage[] = []
 
-const MOCK_LOGS: PaymentLog[] = [
-  { id: 1, ts: '2024-04-22T14:22:00Z', uid: 7891011, username: 'alex_m', kind: 'buy', amount: 25.99, network: 'trc20', status: 'success', tx_hash: '0xa1b2c3...', product: 'Fanvue Pro Account' },
-  { id: 2, ts: '2024-04-22T13:18:00Z', uid: 5556677, username: 'maria_k', kind: 'deposit', amount: 50.00, network: 'erc20', status: 'success', tx_hash: '0xd4e5f6...' },
-  { id: 3, ts: '2024-04-22T12:01:00Z', uid: 9988776, username: 'bob_x', kind: 'buy', amount: 15.99, network: 'bep20', status: 'expired', product: 'Fanvue Premium' },
-  { id: 4, ts: '2024-04-22T10:45:00Z', uid: 1122334, username: 'jane_d', kind: 'buy', amount: 45.00, network: 'sol', status: 'success', tx_hash: '5xK...nP9', product: 'Creator Verification' },
-  { id: 5, ts: '2024-04-21T22:33:00Z', uid: 4455667, username: 'mike_r', kind: 'deposit', amount: 100, network: 'btc', status: 'failed' },
-]
+function mapServerOrder(o: Record<string, unknown>): Order {
+  return {
+    id: String(o.id),
+    kind: (o.kind as Order['kind']) || 'deposit',
+    amount: Number(o.amount_usd ?? o.amount ?? 0),
+    status: (o.status as Order['status']) || 'pending',
+    provider: String(o.network ?? o.provider ?? ''),
+    created: String(o.created_at ?? o.created ?? new Date().toISOString()),
+    paid_at: o.paid_at ? String(o.paid_at) : undefined,
+    txid: o.tx_hash ? String(o.tx_hash) : o.txid ? String(o.txid) : undefined,
+    product_title: o.product_title ? String(o.product_title) : undefined,
+    product_id: o.product_id != null ? Number(o.product_id) : undefined,
+    quantity: o.quantity != null ? Number(o.quantity) : undefined,
+    orderNum: o.orderNum != null ? Number(o.orderNum) : undefined,
+  }
+}
 
 export interface SiteContent {
   offer_ru: string
@@ -210,6 +219,7 @@ interface AppStore {
   addRealSale: (sale: RealSale) => void
   addStickHeroScore: (score: number) => void
   setStickHeroName: (name: string) => void
+  syncAdminData: () => Promise<void>
 }
 
 export const useStore = create<AppStore>()(
@@ -235,7 +245,7 @@ export const useStore = create<AppStore>()(
 
       cryptoAddresses: { ...CONFIG.addresses },
       maintenance: false,
-      logs: MOCK_LOGS,
+      logs: [],
       broadcasts: [],
       qrOverrides: Object.fromEntries(
         Object.entries(CONFIG.qrCodes).filter(([, v]) => !!v),
@@ -310,6 +320,7 @@ export const useStore = create<AppStore>()(
 
             verifyAdminHash(localUser.uid, CONFIG.adminHashes).then((ok) => {
               set({ _adminVerified: ok, _adminCheckDone: true })
+              if (ok && api.isEnabled()) get().syncAdminData()
             }).catch(() => {
               set({ _adminCheckDone: true })
             })
@@ -321,7 +332,10 @@ export const useStore = create<AppStore>()(
                   const u = serverUser as Record<string, unknown>
                   // If server reports isAdmin, trust it over local hash
                   const serverIsAdmin = u.isAdmin === true
-                  if (serverIsAdmin) set({ _adminVerified: true, _adminCheckDone: true })
+                  if (serverIsAdmin) {
+                    set({ _adminVerified: true, _adminCheckDone: true })
+                    get().syncAdminData()
+                  }
                   set((s) => ({
                     user: s.user ? {
                       ...s.user,
@@ -686,28 +700,104 @@ export const useStore = create<AppStore>()(
           ),
         })),
 
+      syncAdminData: async () => {
+        if (!api.isEnabled() || !get()._adminVerified) return
+        try {
+          const [settingsRes, ordersRes, productsRes, logsRes, broadcastsRes] = await Promise.all([
+            api.adminGetSettings(),
+            api.adminOrders(),
+            api.adminGetProducts(),
+            api.adminLogs(),
+            api.adminBroadcasts(),
+          ])
+          const patch: Partial<AppStore> = {}
+          if (settingsRes && typeof settingsRes === 'object') {
+            const s = settingsRes as Record<string, unknown>
+            if (s.addresses && typeof s.addresses === 'object') {
+              patch.cryptoAddresses = { ...get().cryptoAddresses, ...(s.addresses as Record<CryptoNetwork, string>) }
+            }
+            if (s.siteLinks && typeof s.siteLinks === 'object') {
+              patch.siteLinks = { ...get().siteLinks, ...(s.siteLinks as SiteLinks) }
+            }
+            if (s.siteContent && typeof s.siteContent === 'object') {
+              patch.siteContent = { ...get().siteContent, ...(s.siteContent as SiteContent) }
+            }
+            if (s.refWithdrawNetworks && Array.isArray(s.refWithdrawNetworks)) {
+              patch.refWithdrawNetworks = s.refWithdrawNetworks as CryptoNetwork[]
+            }
+            if (s.photos && typeof s.photos === 'object') {
+              patch.photos = s.photos as Record<string, string>
+            }
+            if (s.qrOverrides && typeof s.qrOverrides === 'object') {
+              patch.qrOverrides = s.qrOverrides as Partial<Record<CryptoNetwork, string>>
+            }
+            if (typeof s.maintenance === 'boolean') {
+              patch.maintenance = s.maintenance
+            }
+          }
+          if (Array.isArray(ordersRes)) {
+            patch.orders = (ordersRes as Record<string, unknown>[]).map(mapServerOrder)
+          }
+          if (productsRes && typeof productsRes === 'object') {
+            const pr = productsRes as { products?: Product[]; categories?: Category[]; pinned?: number[] }
+            if (pr.products?.length) patch.products = pr.products
+            if (pr.categories?.length) patch.categories = pr.categories
+            if (pr.pinned) patch.pinnedProductIds = pr.pinned
+          }
+          if (Array.isArray(logsRes) && logsRes.length > 0) {
+            patch.logs = logsRes as PaymentLog[]
+          }
+          if (Array.isArray(broadcastsRes)) {
+            patch.broadcasts = broadcastsRes as Broadcast[]
+          }
+          if (Object.keys(patch).length > 0) set(patch)
+        } catch { /* ignore */ }
+      },
+
       // ─── ADMIN ─────────────────────────────────────────
-      setCryptoAddress: (network, address) =>
-        set((s) => ({ cryptoAddresses: { ...s.cryptoAddresses, [network]: address } })),
+      setCryptoAddress: (network, address) => {
+        set((s) => ({ cryptoAddresses: { ...s.cryptoAddresses, [network]: address } }))
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ addresses: get().cryptoAddresses })
+        }
+      },
 
-      setSiteLink: (key, value) =>
-        set((s) => ({ siteLinks: { ...s.siteLinks, [key]: value } })),
+      setSiteLink: (key, value) => {
+        set((s) => ({ siteLinks: { ...s.siteLinks, [key]: value } }))
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ siteLinks: get().siteLinks })
+        }
+      },
 
-      setQrOverride: (network, dataUri) =>
+      setQrOverride: (network, dataUri) => {
         set((s) => {
           const next = { ...s.qrOverrides }
           if (dataUri === null) delete next[network]; else next[network] = dataUri
           return { qrOverrides: next }
-        }),
+        })
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ qrOverrides: get().qrOverrides })
+        }
+      },
 
-      setPhoto: (key, dataUri) =>
+      setPhoto: (key, dataUri) => {
         set((s) => {
           const next = { ...s.photos }
           if (dataUri === null) delete next[key]; else next[key] = dataUri
           return { photos: next }
-        }),
+        })
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ photos: get().photos })
+        }
+      },
 
-      toggleMaintenance: () => set((s) => ({ maintenance: !s.maintenance })),
+      toggleMaintenance: () => {
+        const next = !get().maintenance
+        set({ maintenance: next })
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ maintenance: next })
+        }
+      },
 
       setOrderStatus: (id, status) => {
         set((s) => {
@@ -829,14 +919,20 @@ export const useStore = create<AppStore>()(
         return true
       },
 
-      upsertProduct: (p) =>
+      upsertProduct: (p) => {
         set((s) => {
           const exists = s.products.some((x) => x.id === p.id)
           return { products: exists ? s.products.map((x) => x.id === p.id ? p : x) : [...s.products, p] }
-        }),
+        })
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminUpsertProduct({ ...p, pinned: get().pinnedProductIds.includes(p.id) })
+        }
+      },
 
-      deleteProduct: (id) =>
-        set((s) => ({ products: s.products.filter((p) => p.id !== id) })),
+      deleteProduct: (id) => {
+        set((s) => ({ products: s.products.filter((p) => p.id !== id) }))
+        if (api.isEnabled() && get()._adminVerified) api.adminDeleteProduct(id)
+      },
 
       upsertCategory: (c) =>
         set((s) => {
@@ -855,19 +951,32 @@ export const useStore = create<AppStore>()(
           broadcasts: [{ id: Date.now(), text, sent_to, ts: new Date().toISOString() }, ...s.broadcasts],
         })),
 
-      setSiteContent: (key, value) =>
-        set((s) => ({ siteContent: { ...s.siteContent, [key]: value } })),
+      setSiteContent: (key, value) => {
+        set((s) => ({ siteContent: { ...s.siteContent, [key]: value } }))
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ siteContent: get().siteContent })
+        }
+      },
 
       markOrderForwarded: (orderId) =>
         set((s) => ({ supportForwardedOrders: s.supportForwardedOrders.includes(orderId) ? s.supportForwardedOrders : [...s.supportForwardedOrders, orderId] })),
 
-      pinProduct: (id) =>
-        set((s) => ({ pinnedProductIds: s.pinnedProductIds.includes(id) ? s.pinnedProductIds : [...s.pinnedProductIds, id] })),
+      pinProduct: (id) => {
+        set((s) => ({ pinnedProductIds: s.pinnedProductIds.includes(id) ? s.pinnedProductIds : [...s.pinnedProductIds, id] }))
+        if (api.isEnabled() && get()._adminVerified) api.adminPinProduct(id)
+      },
 
-      unpinProduct: (id) =>
-        set((s) => ({ pinnedProductIds: s.pinnedProductIds.filter((x) => x !== id) })),
+      unpinProduct: (id) => {
+        set((s) => ({ pinnedProductIds: s.pinnedProductIds.filter((x) => x !== id) }))
+        if (api.isEnabled() && get()._adminVerified) api.adminUnpinProduct(id)
+      },
 
-      setRefWithdrawNetworks: (networks) => set({ refWithdrawNetworks: networks }),
+      setRefWithdrawNetworks: (networks) => {
+        set({ refWithdrawNetworks: networks })
+        if (api.isEnabled() && get()._adminVerified) {
+          api.adminSetSettings({ refWithdrawNetworks: networks })
+        }
+      },
 
       isAdmin: (): boolean => get()._adminVerified,
       isAdminCheckDone: (): boolean => get()._adminCheckDone,

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
@@ -22,15 +22,6 @@ interface UserRow {
   isReal?: boolean
 }
 
-const MOCK_USERS: UserRow[] = [
-  { uid: 7891011, username: 'alex_m',  full_name: 'Alex M.',  balance: 45.00, ref_balance: 5.00,  ref_earned: 5.00,  ref_count: 1, spent: 87.95,  purchases: 4, last_seen: '2024-04-22T14:22:00Z' },
-  { uid: 5556677, username: 'maria_k', full_name: 'Maria K.', balance: 20.00, ref_balance: 15.00, ref_earned: 15.00, ref_count: 3, spent: 165.40, purchases: 7, last_seen: '2024-04-22T13:18:00Z' },
-  { uid: 9988776, username: 'bob_x',   full_name: 'Bob X.',   balance: 0.00,  ref_balance: 0.00,  ref_earned: 0.00,  ref_count: 0, spent: 45.99,  purchases: 2, last_seen: '2024-04-22T12:01:00Z' },
-  { uid: 1122334, username: 'jane_d',  full_name: 'Jane D.',  balance: 88.50, ref_balance: 30.00, ref_earned: 30.00, ref_count: 6, spent: 234.50, purchases: 9, last_seen: '2024-04-22T10:45:00Z' },
-  { uid: 4455667, username: 'mike_r',  full_name: 'Mike R.',  balance: 0.00,  ref_balance: 0.00,  ref_earned: 0.00,  ref_count: 0, spent: 0,      purchases: 0, last_seen: '2024-04-21T22:33:00Z' },
-  { uid: 7766554, username: 'lisa_p',  full_name: 'Lisa P.',  balance: 12.00, ref_balance: 10.00, ref_earned: 10.00, ref_count: 2, spent: 56.99,  purchases: 3, last_seen: '2024-04-21T18:00:00Z' },
-]
-
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
@@ -42,6 +33,7 @@ export default function AdminUsers() {
   const updateBalance = useStore((s) => s.updateBalance)
   const refreshUser = useStore((s) => s.refreshUser)
   const creditRefBalance = useStore((s) => s.creditRefBalance)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const toast = useToast()
   const { haptic } = useTelegram()
 
@@ -49,24 +41,56 @@ export default function AdminUsers() {
   const [selected, setSelected] = useState<UserRow | null>(null)
   const [balAmt, setBalAmt] = useState('')
   const [refAmt, setRefAmt] = useState('')
+  const [serverUsers, setServerUsers] = useState<UserRow[]>([])
+  const [loading, setLoading] = useState(false)
 
-  const realUser: UserRow | null = storeUser ? {
-    uid: storeUser.uid,
-    username: storeUser.username,
-    full_name: storeUser.full_name,
-    balance: storeUser.balance,
-    ref_balance: storeUser.ref_balance,
-    ref_earned: storeUser.ref_earned,
-    ref_count: storeUser.ref_count,
-    spent: storeUser.spent,
-    purchases: storeUser.purchases,
-    last_seen: new Date().toISOString(),
-    isReal: true,
-  } : null
+  useEffect(() => {
+    if (!api.isEnabled()) return
+    setLoading(true)
+    api.adminUsers().then((res) => {
+      if (Array.isArray(res)) setServerUsers(res as UserRow[])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+    syncAdminData()
+  }, [syncAdminData])
 
-  const allUsers: UserRow[] = realUser
-    ? [realUser, ...MOCK_USERS.filter((u) => u.uid !== realUser.uid)]
-    : MOCK_USERS
+  const allUsers: UserRow[] = useMemo(() => {
+    if (!api.isEnabled()) {
+      return storeUser ? [{
+        uid: storeUser.uid,
+        username: storeUser.username,
+        full_name: storeUser.full_name,
+        balance: storeUser.balance,
+        ref_balance: storeUser.ref_balance,
+        ref_earned: storeUser.ref_earned,
+        ref_count: storeUser.ref_count,
+        spent: storeUser.spent,
+        purchases: storeUser.purchases,
+        last_seen: new Date().toISOString(),
+        isReal: true,
+      }] : []
+    }
+    const list = [...serverUsers]
+    if (storeUser && !list.some((u) => u.uid === storeUser.uid)) {
+      list.unshift({
+        uid: storeUser.uid,
+        username: storeUser.username,
+        full_name: storeUser.full_name,
+        balance: storeUser.balance,
+        ref_balance: storeUser.ref_balance,
+        ref_earned: storeUser.ref_earned,
+        ref_count: storeUser.ref_count,
+        spent: storeUser.spent,
+        purchases: storeUser.purchases,
+        last_seen: new Date().toISOString(),
+        isReal: true,
+      })
+    }
+    return list.map((u) => ({
+      ...u,
+      isReal: u.uid === storeUser?.uid ? true : u.isReal,
+    }))
+  }, [serverUsers, storeUser])
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -80,7 +104,7 @@ export default function AdminUsers() {
 
   const handleCreditBalance = async () => {
     const amt = parseFloat(balAmt)
-    if (!amt || amt <= 0 || !selected?.isReal) return
+    if (!amt || amt <= 0 || !selected) return
     const serverAuthoritative = api.isEnabled()
     if (serverAuthoritative) {
       const saved = await api.adminIssueBalance(selected.uid, amt)
@@ -89,8 +113,10 @@ export default function AdminUsers() {
         return
       }
       await refreshUser()
+      const res = await api.adminUsers()
+      if (Array.isArray(res)) setServerUsers(res as UserRow[])
     }
-    if (!serverAuthoritative) updateBalance(amt)
+    if (!serverAuthoritative && selected.isReal) updateBalance(amt)
     haptic('success')
     toast.show(`+$${amt.toFixed(2)} зачислено на основной баланс`, 'success')
     setBalAmt('')
@@ -112,7 +138,6 @@ export default function AdminUsers() {
   return (
     <PageTransition>
       <div className="page adm2-page">
-        {/* HERO */}
         <div className="adm2-hero">
           <div>
             <div className="adm2-hero-eyebrow">{lang === 'ru' ? 'Сообщество' : 'Community'}</div>
@@ -120,8 +145,12 @@ export default function AdminUsers() {
               {lang === 'ru' ? 'Пользо' : 'Users '}<span>{lang === 'ru' ? 'ватели' : 'list'}</span>
             </div>
             <div className="adm2-hero-sub">
-              {filtered.length} {lang === 'ru' ? 'всего · ' : 'total · '}
-              {filtered.filter((u) => u.purchases > 0).length} {lang === 'ru' ? 'активных' : 'active'}
+              {loading ? (lang === 'ru' ? 'Загрузка…' : 'Loading…') : (
+                <>
+                  {filtered.length} {lang === 'ru' ? 'всего · ' : 'total · '}
+                  {filtered.filter((u) => u.purchases > 0).length} {lang === 'ru' ? 'активных' : 'active'}
+                </>
+              )}
             </div>
           </div>
           <motion.button
@@ -133,7 +162,7 @@ export default function AdminUsers() {
               const rows = filtered.map((u) =>
                 [u.uid, u.username, u.full_name, u.balance.toFixed(2), u.spent.toFixed(2), u.purchases, u.ref_earned.toFixed(2), u.ref_count].join(',')
               ).join('\n')
-              const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8' })
+              const blob = new Blob(['\uFEFF' + header + rows], { type: 'text/csv;charset=utf-8' })
               const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
               a.download = `users_${Date.now()}.csv`; a.click()
               toast.show(lang === 'ru' ? `Экспорт: ${filtered.length}` : `Exported ${filtered.length}`, 'success')
@@ -146,6 +175,12 @@ export default function AdminUsers() {
         <div className="mb-3">
           <SearchBar value={search} onChange={setSearch} placeholder={t('admin_user_search')} />
         </div>
+
+        {filtered.length === 0 && !loading && (
+          <div className="text-center t-muted" style={{ padding: 40 }}>
+            {lang === 'ru' ? 'Пока нет пользователей. Они появятся после первого входа в мини-апп.' : 'No users yet. They appear after opening the mini app.'}
+          </div>
+        )}
 
         <div className="col gap-3">
           {filtered.map((u, i) => (
@@ -168,14 +203,14 @@ export default function AdminUsers() {
                 fontSize: 14, fontWeight: 800, flexShrink: 0,
                 boxShadow: u.isReal ? '0 4px 14px rgba(57,255,99,0.35)' : 'none',
               }}>
-                {initials(u.full_name)}
+                {initials(u.full_name || u.username || '?')}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="t-sm fw-bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {u.full_name}
+                  {u.full_name || u.username || `UID ${u.uid}`}
                   {u.isReal && <span style={{ fontSize: 9, fontWeight: 900, background: 'linear-gradient(135deg, #39ff63, #22e84f)', color: '#051006', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.06em' }}>YOU</span>}
                 </div>
-                <div className="t-xs t-muted">@{u.username} · {u.uid}</div>
+                <div className="t-xs t-muted">@{u.username || '—'} · {u.uid}</div>
               </div>
               <div className="col" style={{ alignItems: 'flex-end', gap: 2 }}>
                 <div className="t-sm fw-black" style={{ color: '#39ff63' }}>${u.balance.toFixed(0)}</div>
@@ -191,7 +226,6 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      {/* User detail sheet */}
       <AnimatePresence>
         {selected && (
           <motion.div
@@ -214,7 +248,6 @@ export default function AdminUsers() {
                 onDragEnd={(_, info) => { if (info.offset.y > 80) setSelected(null) }}
               />
 
-              {/* Header */}
               <div className="row gap-3 mb-4">
                 <div style={{
                   width: 52, height: 52, borderRadius: '50%',
@@ -224,17 +257,16 @@ export default function AdminUsers() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 18, fontWeight: 900, flexShrink: 0,
                 }}>
-                  {initials(selected.full_name)}
+                  {initials(selected.full_name || selected.username || '?')}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div className="t-lg fw-black">{selected.full_name}</div>
-                  <div className="t-xs t-muted">@{selected.username}</div>
+                  <div className="t-lg fw-black">{selected.full_name || selected.username}</div>
+                  <div className="t-xs t-muted">@{selected.username || '—'}</div>
                   <div className="t-xs t-muted">UID: {selected.uid}</div>
                 </div>
                 <motion.button onClick={() => setSelected(null)} whileTap={{ scale: 0.9 }} style={{ color: 'var(--t-muted)', fontSize: 22, lineHeight: 1, alignSelf: 'flex-start' }}>×</motion.button>
               </div>
 
-              {/* Stats */}
               <div className="grid-2 gap-3 mb-4">
                 <div className="stat-card">
                   <div className="stat-value t-gold">${selected.balance.toFixed(2)}</div>
@@ -269,66 +301,56 @@ export default function AdminUsers() {
                 </div>
               </div>
 
-              {selected.isReal ? (
-                <>
-                  {/* Credit main balance */}
-                  <div className="card mb-3" style={{ padding: '14px 16px' }}>
-                    <div className="t-sm fw-bold mb-2">
-                      💰 {lang === 'ru' ? 'Зачислить основной баланс' : 'Credit main balance'}
-                    </div>
-                    <div className="row gap-2">
-                      <input
-                        className="input"
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="$0.00"
-                        value={balAmt}
-                        onChange={(e) => setBalAmt(e.target.value)}
-                        style={{ flex: 1 }}
-                      />
-                      <motion.button
-                        className="btn btn-primary btn-sm"
-                        style={{ flexShrink: 0 }}
-                        disabled={!balAmt || parseFloat(balAmt) <= 0}
-                        onClick={handleCreditBalance}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {lang === 'ru' ? 'Зачислить' : 'Credit'}
-                      </motion.button>
-                    </div>
-                  </div>
+              <div className="card mb-3" style={{ padding: '14px 16px' }}>
+                <div className="t-sm fw-bold mb-2">
+                  💰 {lang === 'ru' ? 'Зачислить основной баланс' : 'Credit main balance'}
+                </div>
+                <div className="row gap-2">
+                  <input
+                    className="input"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="$0.00"
+                    value={balAmt}
+                    onChange={(e) => setBalAmt(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <motion.button
+                    className="btn btn-primary btn-sm"
+                    style={{ flexShrink: 0 }}
+                    disabled={!balAmt || parseFloat(balAmt) <= 0}
+                    onClick={handleCreditBalance}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {lang === 'ru' ? 'Зачислить' : 'Credit'}
+                  </motion.button>
+                </div>
+              </div>
 
-                  {/* Credit ref balance */}
-                  <div className="card mb-4" style={{ padding: '14px 16px' }}>
-                    <div className="t-sm fw-bold mb-2">
-                      🎁 {lang === 'ru' ? 'Зачислить реф. баланс' : 'Credit ref balance'}
-                    </div>
-                    <div className="row gap-2">
-                      <input
-                        className="input"
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="$0.00"
-                        value={refAmt}
-                        onChange={(e) => setRefAmt(e.target.value)}
-                        style={{ flex: 1 }}
-                      />
-                      <motion.button
-                        className="btn btn-primary btn-sm"
-                        style={{ flexShrink: 0, background: 'var(--g-success)' }}
-                        disabled={!refAmt || parseFloat(refAmt) <= 0}
-                        onClick={handleCreditRef}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {lang === 'ru' ? 'Зачислить' : 'Credit'}
-                      </motion.button>
-                    </div>
+              {selected.isReal && (
+                <div className="card mb-4" style={{ padding: '14px 16px' }}>
+                  <div className="t-sm fw-bold mb-2">
+                    🎁 {lang === 'ru' ? 'Зачислить реф. баланс' : 'Credit ref balance'}
                   </div>
-                </>
-              ) : (
-                <div className="card mb-4" style={{ padding: '14px', background: 'rgba(255,165,0,0.06)', border: '1px solid rgba(255,165,0,0.2)' }}>
-                  <div className="t-xs" style={{ color: 'var(--orange)' }}>
-                    ⚠️ {lang === 'ru' ? 'Это тестовый пользователь (не интерактивен в demo-режиме)' : 'This is a test user (not interactive in demo mode)'}
+                  <div className="row gap-2">
+                    <input
+                      className="input"
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="$0.00"
+                      value={refAmt}
+                      onChange={(e) => setRefAmt(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <motion.button
+                      className="btn btn-primary btn-sm"
+                      style={{ flexShrink: 0, background: 'var(--g-success)' }}
+                      disabled={!refAmt || parseFloat(refAmt) <= 0}
+                      onClick={handleCreditRef}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      {lang === 'ru' ? 'Зачислить' : 'Credit'}
+                    </motion.button>
                   </div>
                 </div>
               )}
