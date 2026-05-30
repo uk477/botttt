@@ -351,7 +351,7 @@ export default function Orders() {
                               >
                                 <span>{formatDate(o.created, lang)}</span>
                                 <span style={{ opacity: 0.4 }}>·</span>
-                                <span>#{o.id.slice(0, 8)}</span>
+                                <span>#{o.id.includes('-') ? o.id.split('-').pop() : o.id.slice(-8)}</span>
                               </div>
                             </div>
 

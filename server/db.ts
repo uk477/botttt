@@ -329,6 +329,18 @@ export const orders = {
   expire(id: string) {
     stmts.updateStatus.run({ id, status: "expired" });
   },
+  /** Cancel all pending crypto purchases for a user (before creating a new invoice). */
+  expirePendingBuysForUid(uid: number): string[] {
+    const rows = db
+      .prepare(
+        `SELECT id FROM orders WHERE uid = ? AND kind = 'buy' AND status = 'pending'`,
+      )
+      .all(uid) as { id: string }[];
+    for (const row of rows) {
+      stmts.updateStatus.run({ id: row.id, status: "expired" });
+    }
+    return rows.map((r) => r.id);
+  },
   expireOld() {
     return stmts.expireOld.run();
   },

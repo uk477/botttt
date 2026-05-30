@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useT } from '../i18n'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from './Toast'
 import CryptoLogo from './CryptoLogo'
@@ -50,6 +51,7 @@ function formatTimeFull(iso: string) {
 export default function OrderDetailModal({ order, onClose }: Props) {
   const t = useT()
   const lang = useStore((s) => s.lang)
+  const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
   const toast = useToast()
 
@@ -311,11 +313,42 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 <div style={{ fontSize: 14, fontWeight: 700, color: AMBER, marginBottom: 6 }}>
                   ⏳ {lang === 'ru' ? 'Ожидает оплаты' : 'Awaiting payment'}
                 </div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5, marginBottom: 12 }}>
                   {lang === 'ru'
                     ? 'Переведите указанную сумму на кошелёк. После подтверждения транзакции заказ перейдёт в обработку.'
                     : 'Send the specified amount to the wallet. Once confirmed, your order will be processed.'}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      if (api.isEnabled()) await api.cancelOrder(order.id)
+                      setOrderStatus(order.id, 'expired')
+                      haptic('light')
+                      toast.show(
+                        lang === 'ru' ? 'Счёт отменён' : 'Invoice cancelled',
+                        'success',
+                      )
+                      onClose()
+                    })()
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,107,107,0.35)',
+                    background: 'rgba(255,107,107,0.1)',
+                    color: RED,
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {lang === 'ru' ? 'Отменить счёт' : 'Cancel invoice'}
+                </button>
               </div>
             )}
 

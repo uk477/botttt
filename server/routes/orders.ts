@@ -127,6 +127,13 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
     return;
   }
 
+  if (kind === "buy") {
+    const cancelled = orders.expirePendingBuysForUid(user.id);
+    if (cancelled.length > 0) {
+      console.log(`[order] expired ${cancelled.length} pending buy(s) for uid=${user.id}`);
+    }
+  }
+
   const uniqueUsd = generateUniqueAmount(amount_usd);
 
   let rates;

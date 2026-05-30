@@ -221,6 +221,7 @@ interface AppStore {
   checkAndResetMonthlyReward: () => void
   logDailyRef: (date: string, count?: number) => void
   cancelPendingDeposits: () => Promise<void>
+  cancelPendingBuyOrders: () => Promise<void>
 
   // Admin actions
   setCryptoAddress: (network: CryptoNetwork, address: string) => void
@@ -807,7 +808,33 @@ export const useStore = create<AppStore>()(
         set((s) => ({
           orders: s.orders.map((o) =>
             o.kind === 'deposit' && o.status === 'pending'
-              ? { ...o, status: 'failed' as const }
+              ? { ...o, status: 'expired' as const }
+              : o
+          ),
+          notifications: s.notifications.filter(
+            (n) => !pending.some((o) => o.id === n.orderId),
+          ),
+        }))
+      },
+
+      cancelPendingBuyOrders: async () => {
+        const pending = get().orders.filter(
+          (o) =>
+            o.kind === 'buy' &&
+            o.status === 'pending' &&
+            o.provider &&
+            o.provider !== 'balance',
+        )
+        if (api.isEnabled()) {
+          await Promise.all(pending.map((o) => api.cancelOrder(o.id)))
+        }
+        set((s) => ({
+          orders: s.orders.map((o) =>
+            o.kind === 'buy' &&
+            o.status === 'pending' &&
+            o.provider &&
+            o.provider !== 'balance'
+              ? { ...o, status: 'expired' as const }
               : o
           ),
           notifications: s.notifications.filter(

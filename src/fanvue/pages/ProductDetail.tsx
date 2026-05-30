@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
@@ -19,12 +19,12 @@ import {
 } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
-import type { CryptoNetwork } from '../store/types'
+import type { CryptoNetwork, Order } from '../store/types'
 
 
 const EASE = [0.22, 1, 0.36, 1] as const
 
-type PayStep = 'select' | 'crypto_net' | 'crypto_pay' | 'success'
+type PayStep = 'select' | 'pending_gate' | 'crypto_net' | 'crypto_pay' | 'success'
 
 const TIERS = [
   { min: 3, pct: 5 },
@@ -50,6 +50,7 @@ export default function ProductDetail() {
   const tryAutoFulfill = useStore((s) => s.tryAutoFulfill)
   const addRealSale = useStore((s) => s.addRealSale)
   const refreshUser = useStore((s) => s.refreshUser)
+  const cancelPendingBuyOrders = useStore((s) => s.cancelPendingBuyOrders)
 
   const product = products.find((p) => p.id === Number(id))
   const [qty, setQty] = useState(1)
@@ -97,6 +98,31 @@ export default function ProductDetail() {
   const balance = user?.balance ?? 0
   const hasEnoughBalance = balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
+
+  const latestPendingBuy = useMemo(() => {
+    const pending = orders
+      .filter(
+        (o) =>
+          o.kind === 'buy' &&
+          o.status === 'pending' &&
+          o.provider &&
+          o.provider !== 'balance',
+      )
+      .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+    return pending[0] ?? null
+  }, [orders])
+
+  const resumePendingBuy = (o: Order) => {
+    const net = o.provider as CryptoNetwork
+    setSelectedNet(net)
+    setPendingOrder({
+      id: o.id,
+      uniqueAmount: o.amount,
+      createdAt: o.created,
+      expiresAt: o.expires_at,
+    })
+    setPayStep('crypto_pay')
+  }
 
   const similar = products
     .filter((p) => p.active && p.id !== product.id && p.cat_id === product.cat_id)
@@ -212,6 +238,7 @@ export default function ProductDetail() {
     purchaseLock.current = true
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
+    await cancelPendingBuyOrders()
     const result = await createOrder({
       uid: user.uid,
       kind: 'buy',
@@ -613,7 +640,10 @@ export default function ProductDetail() {
 
                   <motion.button
                     className="fv-pay-card fv-pay-card--crypto"
-                    onClick={() => { haptic('light'); setPayStep('crypto_net') }}
+                    onClick={() => {
+                      haptic('light')
+                      setPayStep(latestPendingBuy ? 'pending_gate' : 'crypto_net')
+                    }}
                     initial={false}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.12, duration: 0.4, ease: EASE }}
@@ -643,6 +673,97 @@ export default function ProductDetail() {
                     <span><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>{lang === 'ru' ? 'Зачисление сразу' : 'Instant credit'}</span>
                     <span><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M5 6h14M5 18h9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>{lang === 'ru' ? 'Чек в Telegram' : 'Telegram receipt'}</span>
                   </div>
+                </motion.div>
+              )}
+
+              {payStep === 'pending_gate' && latestPendingBuy && (
+                <motion.div
+                  initial={false}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.42, ease: EASE }}
+                  style={{ padding: '0 4px 8px' }}
+                >
+                  <div className="fv-sheet-title-row">
+                    <button type="button" onClick={() => setPayStep('select')} aria-label="Back">
+                      <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                    <h2>{lang === 'ru' ? 'Неоплаченный счёт' : 'Unpaid invoice'}</h2>
+                  </div>
+                  <p className="fv-pay-sub" style={{ marginBottom: 16 }}>
+                    {lang === 'ru'
+                      ? 'У вас уже есть ожидающая оплата. Продолжите её, отмените и создайте новую, или закройте окно — счёт останется в истории заказов.'
+                      : 'You already have a pending payment. Continue it, cancel and create a new one, or close — the invoice stays in order history.'}
+                  </p>
+                  <div
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: 12,
+                      border: '1px solid rgba(255,210,74,0.28)',
+                      background: 'rgba(255,210,74,0.08)',
+                      marginBottom: 16,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 11,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    <div>
+                      {latestPendingBuy.product_title ?? (lang === 'ru' ? 'Заказ' : 'Order')}
+                    </div>
+                    <div style={{ color: 'rgba(255,255,255,0.55)' }}>
+                      ${latestPendingBuy.amount.toFixed(2)} · {latestPendingBuy.provider?.toUpperCase()}
+                    </div>
+                    <div style={{ color: 'rgba(255,255,255,0.45)' }}>
+                      #{latestPendingBuy.id.split('-').pop() ?? latestPendingBuy.id.slice(-8)}
+                    </div>
+                  </div>
+                  <motion.button
+                    className="dpz-cta fv-full"
+                    type="button"
+                    onClick={() => resumePendingBuy(latestPendingBuy)}
+                    whileTap={{ scale: 0.98 }}
+                    style={{ marginBottom: 10 }}
+                  >
+                    <span className="dpz-cta-bg" aria-hidden />
+                    <span className="dpz-cta-t">{lang === 'ru' ? 'Продолжить оплату' : 'Continue payment'}</span>
+                  </motion.button>
+                  <motion.button
+                    className="dpz-cta fv-full"
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        await cancelPendingBuyOrders()
+                        setPendingOrder(null)
+                        setSelectedNet(null)
+                        setPayStep('crypto_net')
+                      })()
+                    }}
+                    whileTap={{ scale: 0.98 }}
+                    style={{ marginBottom: 10, opacity: 0.92 }}
+                  >
+                    <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить и выбрать сеть' : 'Cancel & pick network'}</span>
+                  </motion.button>
+                  <button
+                    type="button"
+                    className="fv-pay-ghost"
+                    onClick={() => setShowPayment(false)}
+                    style={{
+                      width: '100%',
+                      marginTop: 4,
+                      padding: '14px',
+                      background: 'transparent',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: 8,
+                      color: 'rgba(255,255,255,0.75)',
+                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {lang === 'ru' ? 'Закрыть (ждать в истории)' : 'Close (pay later in history)'}
+                  </button>
                 </motion.div>
               )}
 
@@ -699,7 +820,7 @@ export default function ProductDetail() {
                       void (async () => {
                         if (!pendingOrder) return
                         if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
-                        setOrderStatus(pendingOrder.id, 'failed')
+                        setOrderStatus(pendingOrder.id, 'expired')
                         tgNotify(
                           adminOrderCancelled({
                             userLabel: formatUserRef({
@@ -715,7 +836,8 @@ export default function ProductDetail() {
                           }),
                         )
                         setPendingOrder(null)
-                        setShowPayment(false)
+                        setSelectedNet(null)
+                        setPayStep('crypto_net')
                       })()
                     }}
                     onSuccess={() => {
