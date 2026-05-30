@@ -465,6 +465,9 @@ const broadcastStmts = {
     INSERT INTO broadcasts (text, sent_to, failed, status, keyboard_json)
     VALUES (@text, @sent_to, @failed, @status, @keyboard_json)
   `),
+  finish: db.prepare(`
+    UPDATE broadcasts SET sent_to = @sent_to, failed = @failed, status = @status WHERE id = @id
+  `),
   getAll: db.prepare(`SELECT * FROM broadcasts ORDER BY created_at DESC LIMIT 100`),
 };
 
@@ -591,11 +594,15 @@ export const broadcasts = {
     failed: number;
     status: string;
     keyboard_json?: string | null;
-  }) {
-    broadcastStmts.insert.run({
+  }): number {
+    const r = broadcastStmts.insert.run({
       ...b,
       keyboard_json: b.keyboard_json ?? null,
     });
+    return Number(r.lastInsertRowid);
+  },
+  finish(id: number, sent_to: number, failed: number) {
+    broadcastStmts.finish.run({ id, sent_to, failed, status: "completed" });
   },
   getAll(): BroadcastRow[] {
     return broadcastStmts.getAll.all() as BroadcastRow[];

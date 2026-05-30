@@ -475,7 +475,125 @@
   color: #0a0f0c;
 }
 
-/* ── Broadcast button studio (WYSIWYG) ── */
+/* ── Broadcast (simple editor) ── */
+.adm-bcast-simple {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--adm-border);
+}
+
+.adm-bcast-mode {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.adm-bcast-mode-btn {
+  flex: 1;
+  padding: 11px 12px;
+  border-radius: var(--adm-radius-sm);
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface-2);
+  color: var(--adm-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adm-bcast-mode-btn.is-on {
+  border-color: rgba(61, 220, 132, 0.45);
+  background: var(--adm-accent-dim);
+  color: var(--adm-text);
+}
+
+.adm-bcast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adm-bcast-line {
+  padding: 12px;
+  border-radius: var(--adm-radius-sm);
+  background: var(--adm-surface-2);
+  border: 1px solid var(--adm-border);
+}
+
+.adm-bcast-line-label {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--adm-dim);
+  margin-bottom: 10px;
+}
+
+.adm-bcast-item + .adm-bcast-item {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--adm-border);
+}
+
+.adm-bcast-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.adm-bcast-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--adm-muted);
+}
+
+.adm-bcast-type {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.adm-bcast-type-btn {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--adm-border);
+  background: var(--adm-bg);
+  color: var(--adm-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adm-bcast-type-btn.is-on {
+  border-color: rgba(61, 220, 132, 0.4);
+  color: var(--adm-text);
+  background: var(--adm-accent-dim);
+}
+
+.adm-bcast-remove {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--adm-danger);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adm-bcast-line-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.adm-badge--warn {
+  background: rgba(245, 166, 35, 0.15);
+  color: var(--adm-warn);
+}
+
+/* Legacy preview in history */
 .adm-bcast-studio {
   margin-top: 18px;
   padding-top: 18px;

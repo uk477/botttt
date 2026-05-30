@@ -63,6 +63,36 @@ async function req<T>(
   return null
 }
 
+export type BroadcastApiResult = {
+  ok: boolean
+  sent_to?: number
+  failed?: number
+  total?: number
+  status?: string
+  id?: number
+  error?: string
+}
+
+async function postBroadcast(
+  body: { text: string; keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput },
+): Promise<BroadcastApiResult> {
+  if (!base) return { ok: false, error: 'API disabled' }
+  try {
+    const r = await fetch(`${base}/api/admin/broadcast`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+    })
+    const data = (await r.json().catch(() => ({}))) as BroadcastApiResult & { error?: string }
+    if (!r.ok) {
+      return { ok: false, error: data.error || `HTTP ${r.status}` }
+    }
+    return { ...data, ok: data.ok !== false }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'network' }
+  }
+}
+
 const get  = <T>(path: string)              => req<T>('GET',    path)
 const post = <T>(path: string, b: object)   => req<T>('POST',   path, b)
 const patch = <T>(path: string, b: object)  => req<T>('PATCH',  path, b)
@@ -102,7 +132,7 @@ export const api = {
   adminPinProduct:       (id: number)              => post(`/api/admin/product/${id}/pin`, {}),
   adminUnpinProduct:     (id: number)              => del(`/api/admin/product/${id}/pin`),
   adminBroadcast:        (body: { text: string; keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput }) =>
-    post<{ ok: boolean; sent_to: number; failed: number }>('/api/admin/broadcast', body),
+    postBroadcast(body),
   adminBroadcasts:       ()                        => get('/api/admin/broadcasts'),
   adminRefWithdrawals:   ()                        => get('/api/admin/ref-withdrawals'),
   adminSetRefStatus:     (id: string, b: object)   => patch(`/api/admin/ref-withdrawal/${id}`, b),

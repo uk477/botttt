@@ -241,14 +241,39 @@ export async function notifyUserWithButton(
   return ok;
 }
 
+/** Plain text broadcast (no HTML parse — avoids broken messages like "Pop"). */
+export async function sendBroadcastMessage(
+  chatId: number | string,
+  text: string,
+  replyMarkup?: unknown,
+): Promise<boolean> {
+  try {
+    const body: Record<string, unknown> = { chat_id: chatId, text };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    const res = await fetch(`${TG_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json()) as { ok: boolean; description?: string };
+    if (!data.ok) {
+      console.error(
+        `[telegram] broadcast failed → chat_id=${chatId} :: ${data.description ?? "unknown"}`,
+      );
+    }
+    return data.ok;
+  } catch (e) {
+    console.error("[telegram] broadcast error:", e);
+    return false;
+  }
+}
+
 export async function notifyUserBroadcast(
   chatId: number,
   text: string,
   replyMarkup: unknown | undefined,
 ): Promise<boolean> {
-  if (!replyMarkup) return notifyUser(chatId, text);
-  const { ok } = await sendMessageWithKeyboard(chatId, text, replyMarkup);
-  return ok;
+  return sendBroadcastMessage(chatId, text, replyMarkup);
 }
 
 export async function notifyUserTemplated(

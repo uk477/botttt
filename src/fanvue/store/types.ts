@@ -191,6 +191,7 @@ export interface Broadcast {
   text: string
   sent_to: number
   ts: string
+  status?: string
   keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
 }
 

@@ -266,7 +266,7 @@ router.post("/api/admin/category", (req: Request, res: Response) => {
 });
 
 // ── Admin Broadcast ────────────────────────────────────────────────
-const broadcastLimiter = rateLimit({ windowMs: 300_000, max: 3 });
+const broadcastLimiter = rateLimit({ windowMs: 60_000, max: 5 });
 
 router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
@@ -281,30 +281,37 @@ router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: 
   }
   const kb: BroadcastKeyboardInput = kbCheck.value;
   const replyMarkup = buildBroadcastReplyMarkup(kb, ENV.webAppUrl);
-  if (kb.enabled && !replyMarkup) {
-    res.status(400).json({ error: "Add at least one valid button or disable keyboard" }); return;
-  }
 
   const userRows = allUsers.getAll();
-  let sent = 0;
-  let failed = 0;
-
-  for (const u of userRows) {
-    const ok = await notifyUserBroadcast(u.uid, text, replyMarkup);
-    if (ok) sent++;
-    else failed++;
-    await new Promise((r) => setTimeout(r, 35));
-  }
-
   const keyboardJson = JSON.stringify(kb);
-  broadcasts.create({
+  const broadcastId = broadcasts.create({
     text,
-    sent_to: sent,
-    failed,
-    status: "completed",
+    sent_to: 0,
+    failed: 0,
+    status: "running",
     keyboard_json: keyboardJson,
   });
-  res.json({ ok: true, sent_to: sent, failed });
+
+  res.json({
+    ok: true,
+    status: "running",
+    sent_to: 0,
+    failed: 0,
+    total: userRows.length,
+    id: broadcastId,
+  });
+
+  void (async () => {
+    let sent = 0;
+    let failed = 0;
+    for (const u of userRows) {
+      const ok = await notifyUserBroadcast(u.uid, text, replyMarkup);
+      if (ok) sent++;
+      else failed++;
+      await new Promise((r) => setTimeout(r, 35));
+    }
+    broadcasts.finish(broadcastId, sent, failed);
+  })();
 });
 
 router.get("/api/admin/broadcasts", (req: Request, res: Response) => {
@@ -316,6 +323,7 @@ router.get("/api/admin/broadcasts", (req: Request, res: Response) => {
       text: b.text,
       sent_to: b.sent_to,
       ts: b.created_at,
+      status: b.status,
       keyboard: b.keyboard_json ? safeParseKeyboard(b.keyboard_json) : undefined,
     })),
   );

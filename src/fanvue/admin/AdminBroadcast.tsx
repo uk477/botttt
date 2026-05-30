@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { AdminConfirmSheet } from './ui'
@@ -15,6 +15,19 @@ import { api } from '../store/api'
 import { keyboardSummary } from '../../../shared/broadcastKeyboard'
 import type { BroadcastKeyboardInput } from '../../../shared/broadcastKeyboard'
 
+function mapBroadcastHistory(
+  rows: { id: number; text: string; sent_to: number; ts: string; keyboard?: BroadcastKeyboardInput; status?: string }[],
+) {
+  return rows.map((b) => ({
+    id: b.id,
+    text: b.text,
+    sent_to: b.sent_to,
+    ts: b.ts,
+    keyboard: b.keyboard,
+    status: b.status,
+  }))
+}
+
 export default function AdminBroadcast() {
   const t = useT()
   const lang = useStore((s) => s.lang) as 'ru' | 'en'
@@ -28,28 +41,45 @@ export default function AdminBroadcast() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [sending, setSending] = useState(false)
 
-  useEffect(() => {
+  const loadHistory = useCallback(async () => {
     if (!api.isEnabled()) return
-    api.adminBroadcasts().then((res) => {
-      if (Array.isArray(res) && res.length > 0) {
-        useStore.setState({
-          broadcasts: res as typeof broadcasts,
-        })
-      }
-    })
+    const res = await api.adminBroadcasts()
+    if (Array.isArray(res) && res.length > 0) {
+      useStore.setState({ broadcasts: mapBroadcastHistory(res) })
+    }
   }, [])
+
+  useEffect(() => {
+    void loadHistory()
+    const id = window.setInterval(() => void loadHistory(), 4000)
+    return () => window.clearInterval(id)
+  }, [loadHistory])
 
   const keyboardPayload = (): BroadcastKeyboardInput =>
     keyboardFromRows(rows, buttonsEnabled)
 
   const handleSend = () => {
     if (!text.trim()) return
-    if (buttonsEnabled && rows.every((r) => r.every((b) => !b.text.trim()))) {
+    const kb = keyboardPayload()
+    if (kb.enabled && kb.rows.length === 0) {
       toast.show(
-        lang === 'ru' ? 'Добавьте текст хотя бы одной кнопки' : 'Add at least one button label',
+        lang === 'ru' ? 'Введите текст кнопки или отключите кнопки' : 'Enter button text or disable buttons',
         'error',
       )
       return
+    }
+    if (kb.enabled) {
+      for (const row of kb.rows) {
+        for (const b of row) {
+          if (b.type === 'url' && !b.url?.trim()) {
+            toast.show(
+              lang === 'ru' ? 'Укажите ссылку для кнопки «Ссылка»' : 'Set URL for link buttons',
+              'error',
+            )
+            return
+          }
+        }
+      }
     }
     setShowConfirm(true)
   }
@@ -60,22 +90,41 @@ export default function AdminBroadcast() {
     setSending(true)
     setShowConfirm(false)
     try {
-      if (api.isEnabled()) {
-        const res = await api.adminBroadcast({ text: trimmed, keyboard })
-        if (!res || !res.ok) {
-          toast.show(lang === 'ru' ? 'Ошибка рассылки' : 'Broadcast failed', 'error')
-          setSending(false)
-          return
-        }
-        haptic('success')
-        addBroadcast(trimmed, res.sent_to, keyboard)
-        toast.show(`${t('admin_broadcast_sent')}: ${res.sent_to}${res.failed ? ` (${res.failed} ${lang === 'ru' ? 'ошибок' : 'failed'})` : ''}`, 'success')
-      } else {
-        haptic('success')
-        addBroadcast(trimmed, 0, keyboard)
-        toast.show(lang === 'ru' ? 'Нужен сервер (API) для рассылки' : 'Server API required for broadcast', 'error')
+      if (!api.isEnabled()) {
+        toast.show(lang === 'ru' ? 'Нет API (VITE_API_URL)' : 'No API (VITE_API_URL)', 'error')
+        return
       }
+
+      const res = await api.adminBroadcast({ text: trimmed, keyboard })
+      if (!res?.ok) {
+        haptic('error')
+        toast.show(
+          res?.error
+            ? (lang === 'ru' ? `Ошибка: ${res.error}` : `Error: ${res.error}`)
+            : (lang === 'ru' ? 'Рассылка не удалась' : 'Broadcast failed'),
+          'error',
+        )
+        return
+      }
+
+      haptic('success')
+      if (res.status === 'running' && res.total) {
+        toast.show(
+          lang === 'ru'
+            ? `Рассылка запущена: ${res.total} получателей`
+            : `Broadcast started: ${res.total} recipients`,
+          'success',
+        )
+      } else {
+        toast.show(
+          `${t('admin_broadcast_sent')}: ${res.sent_to}${res.failed ? ` (${res.failed} ${lang === 'ru' ? 'ошибок' : 'failed'})` : ''}`,
+          'success',
+        )
+      }
+
+      addBroadcast(trimmed, res.sent_to ?? 0, keyboard)
       setText('')
+      void loadHistory()
     } finally {
       setSending(false)
     }
@@ -90,22 +139,24 @@ export default function AdminBroadcast() {
     <PageTransition>
       <div className="adm-page">
         <div className="adm-card" style={{ marginBottom: 16 }}>
-          <div className="adm-section-label" style={{ marginBottom: 12 }}>{t('admin_broadcast_text')}</div>
+          <div className="adm-section-label" style={{ marginBottom: 8 }}>{t('admin_broadcast_text')}</div>
+          <p className="t-xs t-muted" style={{ marginBottom: 12, lineHeight: 1.45 }}>
+            {lang === 'ru'
+              ? 'Сообщение уйдёт всем, кто хоть раз открывал магазин.'
+              : 'Sent to everyone who opened the shop at least once.'}
+          </p>
           <textarea
             className="adm-input"
             rows={5}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={lang === 'ru'
-              ? 'Введите сообщение для рассылки всем пользователям...'
-              : 'Enter message to broadcast to all users...'}
-            style={{ resize: 'vertical', minHeight: 120 }}
+            placeholder={lang === 'ru' ? 'Текст рассылки…' : 'Broadcast text…'}
+            style={{ resize: 'vertical', minHeight: 110 }}
           />
           <div className="t-xs t-muted mt-2">{text.length} / 4096</div>
 
           <AdminBroadcastKeyboard
             lang={lang}
-            messagePreview={text.trim()}
             enabled={buttonsEnabled}
             onEnabledChange={setButtonsEnabled}
             rows={rows}
@@ -115,11 +166,11 @@ export default function AdminBroadcast() {
           <button
             type="button"
             className="adm-btn adm-btn--primary"
-            style={{ marginTop: 12, width: '100%' }}
+            style={{ marginTop: 16, width: '100%' }}
             onClick={handleSend}
             disabled={!text.trim() || sending}
           >
-            {sending ? (lang === 'ru' ? 'Отправка…' : 'Sending…') : t('admin_broadcast_send')}
+            {sending ? (lang === 'ru' ? 'Запуск…' : 'Starting…') : t('admin_broadcast_send')}
           </button>
         </div>
 
@@ -142,6 +193,11 @@ export default function AdminBroadcast() {
                 <div className="row-between mb-2">
                   <div className="t-xs t-muted">{new Date(b.ts).toLocaleString()}</div>
                   <div className="row gap-2">
+                    {(b as { status?: string }).status === 'running' && (
+                      <span className="adm-badge adm-badge--warn">
+                        {lang === 'ru' ? 'отправка…' : 'sending…'}
+                      </span>
+                    )}
                     {b.keyboard && (
                       <span className="adm-badge">{keyboardSummary(b.keyboard, lang)}</span>
                     )}
@@ -149,17 +205,6 @@ export default function AdminBroadcast() {
                   </div>
                 </div>
                 <div className="t-sm" style={{ lineHeight: 1.5 }}>{b.text}</div>
-                {b.keyboard?.enabled && b.keyboard.rows.length > 0 && (
-                  <div className="adm-bcast-preview" style={{ marginTop: 10, padding: 8 }}>
-                    {b.keyboard.rows.map((row, ri) => (
-                      <div key={ri} className="adm-bcast-preview-row">
-                        {row.map((btn, bi) => (
-                          <span key={bi} className="adm-bcast-preview-btn">{btn.text}</span>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </motion.div>
             ))}
           </div>
