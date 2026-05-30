@@ -426,6 +426,12 @@ db.exec(`
   );
 `);
 
+try {
+  db.exec(`ALTER TABLE broadcasts ADD COLUMN keyboard_json TEXT`);
+} catch {
+  /* column exists */
+}
+
 const productStmts = {
   getAll: db.prepare(`SELECT * FROM products ORDER BY created_at DESC`),
   get: db.prepare(`SELECT * FROM products WHERE id = ?`),
@@ -455,7 +461,10 @@ const categoryStmts = {
 };
 
 const broadcastStmts = {
-  insert: db.prepare(`INSERT INTO broadcasts (text, sent_to, failed, status) VALUES (@text, @sent_to, @failed, @status)`),
+  insert: db.prepare(`
+    INSERT INTO broadcasts (text, sent_to, failed, status, keyboard_json)
+    VALUES (@text, @sent_to, @failed, @status, @keyboard_json)
+  `),
   getAll: db.prepare(`SELECT * FROM broadcasts ORDER BY created_at DESC LIMIT 100`),
 };
 
@@ -515,6 +524,7 @@ export interface BroadcastRow {
   failed: number;
   status: string;
   created_at: string;
+  keyboard_json: string | null;
 }
 
 export interface AdminLogRow {
@@ -575,8 +585,17 @@ export const categories = {
 };
 
 export const broadcasts = {
-  create(b: { text: string; sent_to: number; failed: number; status: string }) {
-    broadcastStmts.insert.run(b);
+  create(b: {
+    text: string;
+    sent_to: number;
+    failed: number;
+    status: string;
+    keyboard_json?: string | null;
+  }) {
+    broadcastStmts.insert.run({
+      ...b,
+      keyboard_json: b.keyboard_json ?? null,
+    });
   },
   getAll(): BroadcastRow[] {
     return broadcastStmts.getAll.all() as BroadcastRow[];

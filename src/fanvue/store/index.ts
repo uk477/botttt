@@ -185,7 +185,7 @@ interface AppStore {
   upsertCategory: (c: Category) => void
   deleteCategory: (id: number) => void
   addLog: (log: Omit<PaymentLog, 'id'>) => void
-  addBroadcast: (text: string, sent_to: number) => void
+  addBroadcast: (text: string, sent_to: number, keyboard?: import('../../shared/broadcastKeyboard').BroadcastKeyboardInput) => void
   setSiteContent: (key: keyof SiteContent, value: string) => void
   markOrderForwarded: (orderId: string) => void
   pinProduct: (id: number) => void
@@ -954,9 +954,9 @@ export const useStore = create<AppStore>()(
       addLog: (log) =>
         set((s) => ({ logs: [{ id: Date.now(), ...log }, ...s.logs].slice(0, 500) })),
 
-      addBroadcast: (text, sent_to) =>
+      addBroadcast: (text, sent_to, keyboard) =>
         set((s) => ({
-          broadcasts: [{ id: Date.now(), text, sent_to, ts: new Date().toISOString() }, ...s.broadcasts],
+          broadcasts: [{ id: Date.now(), text, sent_to, ts: new Date().toISOString(), keyboard }, ...s.broadcasts],
         })),
 
       setSiteContent: (key, value) => {

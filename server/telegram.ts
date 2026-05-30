@@ -241,6 +241,16 @@ export async function notifyUserWithButton(
   return ok;
 }
 
+export async function notifyUserBroadcast(
+  chatId: number,
+  text: string,
+  replyMarkup: unknown | undefined,
+): Promise<boolean> {
+  if (!replyMarkup) return notifyUser(chatId, text);
+  const { ok } = await sendMessageWithKeyboard(chatId, text, replyMarkup);
+  return ok;
+}
+
 export async function notifyUserTemplated(
   chatId: number,
   kind: UserNotifyKind,

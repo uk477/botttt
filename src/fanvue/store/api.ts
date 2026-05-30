@@ -101,7 +101,8 @@ export const api = {
   adminDeleteProduct:    (id: number)              => del(`/api/admin/product/${id}`),
   adminPinProduct:       (id: number)              => post(`/api/admin/product/${id}/pin`, {}),
   adminUnpinProduct:     (id: number)              => del(`/api/admin/product/${id}/pin`),
-  adminBroadcast:        (text: string)            => post<{ ok: boolean; sent_to: number; failed: number }>('/api/admin/broadcast', { text }),
+  adminBroadcast:        (body: { text: string; keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput }) =>
+    post<{ ok: boolean; sent_to: number; failed: number }>('/api/admin/broadcast', body),
   adminBroadcasts:       ()                        => get('/api/admin/broadcasts'),
   adminRefWithdrawals:   ()                        => get('/api/admin/ref-withdrawals'),
   adminSetRefStatus:     (id: string, b: object)   => patch(`/api/admin/ref-withdrawal/${id}`, b),

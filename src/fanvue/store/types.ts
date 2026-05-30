@@ -191,6 +191,7 @@ export interface Broadcast {
   text: string
   sent_to: number
   ts: string
+  keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
 }
 
 export interface PaymentNotification {

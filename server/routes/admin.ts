@@ -1,6 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyUserTemplated, notifyUserWithButton } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyUserTemplated, notifyUserBroadcast } from "../telegram.js";
+import {
+  buildBroadcastReplyMarkup,
+  validateBroadcastKeyboard,
+  type BroadcastKeyboardInput,
+} from "../../shared/broadcastKeyboard.js";
 import type { NotifyLang } from "../../shared/telegramTemplates.js";
 import {
   orders,
@@ -21,6 +26,15 @@ import {
 import { ENV } from "../env.js";
 
 const router = Router();
+
+function safeParseKeyboard(raw: string): BroadcastKeyboardInput | undefined {
+  try {
+    const parsed = validateBroadcastKeyboard(JSON.parse(raw));
+    return parsed.ok ? parsed.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function requireAdmin(req: Request, res: Response): number | null {
   const initData =
@@ -256,9 +270,19 @@ const broadcastLimiter = rateLimit({ windowMs: 300_000, max: 3 });
 
 router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  const { text } = req.body as { text?: string };
+  const { text, keyboard } = req.body as { text?: string; keyboard?: unknown };
   if (!text || typeof text !== "string" || text.length > 4096) {
     res.status(400).json({ error: "Invalid text" }); return;
+  }
+
+  const kbCheck = validateBroadcastKeyboard(keyboard);
+  if (!kbCheck.ok) {
+    res.status(400).json({ error: kbCheck.error }); return;
+  }
+  const kb: BroadcastKeyboardInput = kbCheck.value;
+  const replyMarkup = buildBroadcastReplyMarkup(kb, ENV.webAppUrl);
+  if (kb.enabled && !replyMarkup) {
+    res.status(400).json({ error: "Add at least one valid button or disable keyboard" }); return;
   }
 
   const userRows = allUsers.getAll();
@@ -266,13 +290,20 @@ router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: 
   let failed = 0;
 
   for (const u of userRows) {
-    const ok = await notifyUserWithButton(u.uid, text);
+    const ok = await notifyUserBroadcast(u.uid, text, replyMarkup);
     if (ok) sent++;
     else failed++;
     await new Promise((r) => setTimeout(r, 35));
   }
 
-  broadcasts.create({ text, sent_to: sent, failed, status: "completed" });
+  const keyboardJson = JSON.stringify(kb);
+  broadcasts.create({
+    text,
+    sent_to: sent,
+    failed,
+    status: "completed",
+    keyboard_json: keyboardJson,
+  });
   res.json({ ok: true, sent_to: sent, failed });
 });
 
@@ -285,6 +316,7 @@ router.get("/api/admin/broadcasts", (req: Request, res: Response) => {
       text: b.text,
       sent_to: b.sent_to,
       ts: b.created_at,
+      keyboard: b.keyboard_json ? safeParseKeyboard(b.keyboard_json) : undefined,
     })),
   );
 });
