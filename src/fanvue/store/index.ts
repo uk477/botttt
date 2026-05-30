@@ -19,6 +19,7 @@ import type {
   Referral, RealSale, SiteContent, SiteLinks,
 } from './types'
 import { defaultSiteLinks, mergeStoreConfigPatch, type PublicStoreConfig } from './storeConfigSync'
+import { applySupportSessionPayload } from './supportSync'
 
 export const CRYPTO_OPTIONS: CryptoOption[] = [
   { id: 'trc20',    name: 'USDT TRC20',  symbol: 'USDT', color: '#26A17B', icon: '₮', address: CONFIG.addresses.trc20 },
@@ -392,8 +393,14 @@ export const useStore = create<AppStore>()(
           }
 
           const msgRes = await api.getMessages()
-          if (msgRes && typeof msgRes === 'object' && Array.isArray((msgRes as { messages?: unknown }).messages)) {
-            set({ supportMessages: (msgRes as { messages: SupportMessage[] }).messages })
+          const supportSession = applySupportSessionPayload(
+            msgRes as { messages?: unknown[]; tickets?: unknown[] } | null,
+          )
+          if (supportSession) {
+            set({
+              supportMessages: supportSession.messages,
+              supportTickets: supportSession.tickets,
+            })
           }
 
           const catalog = await api.getProducts()
@@ -590,7 +597,7 @@ export const useStore = create<AppStore>()(
           summary,
         }
         set((s) => ({
-          supportTickets: [ticket, ...s.supportTickets],
+          supportTickets: [ticket, ...s.supportTickets.filter((t) => t.id !== id)],
           supportMessages: [
             ...s.supportMessages,
             {
@@ -603,6 +610,9 @@ export const useStore = create<AppStore>()(
             },
           ],
         }))
+        if (api.isEnabled()) {
+          void api.openSupportTicket({ id, category, summary })
+        }
         return ticket
       },
 
@@ -878,7 +888,16 @@ export const useStore = create<AppStore>()(
           }
           if (supportRes && typeof supportRes === 'object') {
             const sr = supportRes as { tickets?: SupportTicket[]; messages?: SupportMessage[] }
-            if (Array.isArray(sr.messages)) patch.supportMessages = sr.messages
+            if (Array.isArray(sr.messages)) {
+              const session = applySupportSessionPayload({
+                messages: sr.messages,
+                tickets: sr.tickets as unknown[] | undefined,
+              })
+              if (session) {
+                patch.supportMessages = session.messages
+                patch.supportTickets = session.tickets
+              }
+            }
             if (Array.isArray(sr.tickets)) patch.supportTickets = sr.tickets
           }
           if (productsRes && typeof productsRes === 'object') {

@@ -466,6 +466,7 @@ router.get("/api/support/messages", (req: Request, res: Response) => {
     id: number; uid: number; sender: string; kind: string; text: string; created_at: string;
     read_by_admin: number; read_by_user: number; ticket_id: string | null;
   }[];
+  const ticketRows = support.getTicketsByUid(user.id);
   res.json({
     messages: rows.map((m) => ({
       id: m.id,
@@ -477,6 +478,62 @@ router.get("/api/support/messages", (req: Request, res: Response) => {
       read_by_user: !!m.read_by_user,
       ticket_id: m.ticket_id ?? undefined,
     })),
+    tickets: ticketRows.map((tk) => ({
+      id: tk.id,
+      category: tk.category,
+      status: tk.status === "closed" ? "closed" : "open",
+      opened: tk.created_at,
+      closed: tk.closed_at ?? undefined,
+      summary: tk.summary ?? undefined,
+    })),
+  });
+});
+
+router.post("/api/support/ticket", async (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { category, summary, id: clientId } = req.body as {
+    category?: string;
+    summary?: string;
+    id?: string;
+  };
+  const valid = new Set(["payment", "delivery", "account", "operator", "other"]);
+  if (!category || !valid.has(category)) {
+    res.status(400).json({ error: "Invalid category" }); return;
+  }
+
+  const id =
+    typeof clientId === "string" && /^FV-\d{4}$/.test(clientId)
+      ? clientId
+      : `FV-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  support.upsertTicket({
+    id,
+    uid: user.id,
+    category,
+    status: "open",
+    summary: typeof summary === "string" ? summary.slice(0, 500) : null,
+  });
+  support.addMessage({
+    uid: user.id,
+    sender: "bot",
+    kind: "system",
+    text: `ticket_opened:${id}`,
+    ticket_id: id,
+  });
+
+  const row = support.getTicketsByUid(user.id).find((t) => t.id === id);
+  res.json({
+    ok: true,
+    ticket: {
+      id,
+      category,
+      status: "open" as const,
+      opened: row?.created_at ?? new Date().toISOString(),
+      summary: summary ?? undefined,
+    },
   });
 });
 

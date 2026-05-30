@@ -123,7 +123,9 @@ export const api = {
     purchases?: number
   }>('/api/purchase/balance', b),
 
-  getMessages:    ()                 => get('/api/support/messages'),
+  getMessages:    ()                 => get<{ messages: unknown[]; tickets?: unknown[] }>('/api/support/messages'),
+  openSupportTicket: (b: { id: string; category: string; summary?: string }) =>
+    post<{ ok: boolean; ticket: Record<string, unknown> }>('/api/support/ticket', b),
   sendMessage:    (text: string)     => post('/api/support/message', { text }),
 
   refWithdraw:    (b: object)        => post('/api/ref/withdraw', b),

@@ -657,6 +657,19 @@ export const support = {
   getMessages(uid: number) {
     return supportStmts.getMessages.all(uid);
   },
+  getTicketsByUid(uid: number) {
+    return db
+      .prepare(`SELECT * FROM support_tickets WHERE uid = ? ORDER BY created_at DESC LIMIT 50`)
+      .all(uid) as {
+      id: string;
+      uid: number;
+      category: string;
+      status: string;
+      summary: string | null;
+      created_at: string;
+      closed_at: string | null;
+    }[];
+  },
   getAllMessages() {
     return supportStmts.getAllMessages.all();
   },

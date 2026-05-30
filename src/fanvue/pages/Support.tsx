@@ -8,6 +8,8 @@ import { CONFIG } from "../config";
 import { normalizeTelegramUrl } from "../utils/telegramLink";
 import ConfirmSheet from "../components/ConfirmSheet";
 import OrderReceiptMessage from "../components/OrderReceiptMessage";
+import { parseMessageDate } from "../utils/date";
+import { api } from "../store/api";
 import type {
   SupportMessage,
   SupportAttachment,
@@ -44,7 +46,7 @@ function newId(): number {
 }
 
 function fmtTime(iso: string, lang: string) {
-  return new Date(iso).toLocaleTimeString(lang === "ru" ? "ru-RU" : "en-US", {
+  return parseMessageDate(iso).toLocaleTimeString(lang === "ru" ? "ru-RU" : "en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -52,7 +54,7 @@ function fmtTime(iso: string, lang: string) {
 }
 
 function fmtDay(iso: string, lang: string) {
-  const d = new Date(iso);
+  const d = parseMessageDate(iso);
   const today = new Date();
   const yest = new Date();
   yest.setDate(today.getDate() - 1);
@@ -628,8 +630,11 @@ export default function Support() {
     [orders, lastClosedTicketAt],
   );
   const canWrite = !!activeTicket || hasOpenOrder;
+  const needsTriage = !activeTicket && !hasOpenOrder;
 
-
+  useEffect(() => {
+    if (api.isEnabled()) void useStore.getState().pullServerSession();
+  }, []);
 
   // Mark admin/bot messages as read on entry + when new arrive
   useEffect(() => {
@@ -949,7 +954,7 @@ export default function Support() {
     let lastDay = "";
     let cur: GroupItem | null = null;
     messages.forEach((m) => {
-      const day = new Date(m.created).toDateString();
+      const day = parseMessageDate(m.created).toDateString();
       if (day !== lastDay) {
         out.push({ type: "day", key: "d-" + day, label: fmtDay(m.created, lang) });
         lastDay = day;
@@ -1099,6 +1104,14 @@ export default function Support() {
         </AnimatePresence>
         <div ref={bottomRef} />
       </main>
+
+      {needsTriage && (
+        <TriageCategoryPanel
+          lang={lang}
+          t={t}
+          onPickCategory={handlePickCategory}
+        />
+      )}
 
       <Composer
         focused={focused}
@@ -1366,6 +1379,85 @@ function DaySeparator({ label }: { label: string }) {
       >
         {label}
       </span>
+    </div>
+  );
+}
+
+/* ── Category picker (pinned above input when no open ticket) ─── */
+
+function TriageCategoryPanel({
+  lang,
+  t,
+  onPickCategory,
+}: {
+  lang: string;
+  t: (ru: string, en: string) => string;
+  onPickCategory: (cat: (typeof CATEGORIES)[number]) => void;
+}) {
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        padding: "10px 14px 8px",
+        borderTop: `1px solid ${C.border}`,
+        background: C.surface,
+      }}
+    >
+      <p style={{ margin: "0 0 10px", fontSize: 12, color: C.muted, lineHeight: 1.4 }}>
+        {t("Выберите тему — откроем заявку и можно будет писать в чат.", "Pick a topic — we'll open a ticket so you can chat.")}
+      </p>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 10,
+        }}
+      >
+        {CATEGORIES.map((c) => (
+          <motion.button
+            key={c.id}
+            type="button"
+            onClick={() => onPickCategory(c)}
+            whileTap={{ scale: 0.97 }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: 8,
+              padding: "13px 13px 12px",
+              borderRadius: 16,
+              border: `1px solid ${C.border}`,
+              background: `linear-gradient(180deg, ${C.surfaceHi} 0%, ${C.surface} 100%)`,
+              color: C.text,
+              cursor: "pointer",
+              textAlign: "left",
+              lineHeight: 1.25,
+              minHeight: 86,
+            }}
+          >
+            <span
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                display: "grid",
+                placeItems: "center",
+                background: "rgba(57,255,99,0.10)",
+                border: "1px solid rgba(57,255,99,0.20)",
+                color: C.green,
+              }}
+            >
+              <CategoryIcon icon={c.icon} size={18} />
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em" }}>
+              {t(c.ru, c.en)}
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 450, color: C.muted, letterSpacing: "-0.005em" }}>
+              {t(c.subRu, c.subEn)}
+            </span>
+          </motion.button>
+        ))}
+      </div>
     </div>
   );
 }
