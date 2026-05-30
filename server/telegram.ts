@@ -219,7 +219,7 @@ export async function notifyUser(
   chatId: number,
   text: string,
 ): Promise<boolean> {
-  return notifySend(chatId, text);
+  return sendMessage(chatId, text);
 }
 
 export async function notifyUserWithButton(
@@ -228,8 +228,9 @@ export async function notifyUserWithButton(
   buttonText = "Открыть приложение",
 ): Promise<boolean> {
   const url = ENV.webAppUrl;
-  if (!url) return notifySend(chatId, text);
-  return notifySendKeyboard(chatId, text, {
+  if (!url) return sendMessage(chatId, text);
+  const { ok } = await sendMessageWithKeyboard(chatId, text, {
     inline_keyboard: [[{ text: buttonText, web_app: { url } }]],
   });
+  return ok;
 }

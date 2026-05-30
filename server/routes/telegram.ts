@@ -11,36 +11,24 @@ const router = Router();
 type Lang = "ru" | "en";
 
 const WELCOME: Record<Lang, string> = {
-  ru: `⚡️ <b>Добро пожаловать в Fanvue Market!</b>
+  ru: `<b>Fanvue Market</b>
 
-🤝 Твой надежный сервис для комфортной работы.
+Верифицированные аккаунты, прохождение верификации и пополнение криптой — всё в одном приложении.
 
-В нашем приложении ты найдешь:
+✦ Моментальная выдача после оплаты
+✦ Гарантия возврата при отказе
+✦ Анонимно и безопасно
 
-⭐️ <b>Готовые верифицированные аккаунты</b>
-Чистые профили с моментальной выдачей сразу после оплаты.
+Нажми кнопку ниже, чтобы открыть маркет.`,
+  en: `<b>Fanvue Market</b>
 
-⭐️ <b>Прохождение верификации</b>
-Сервис «под ключ» на твоем аккаунте с полной гарантией возврата средств при отказе.
+Verified accounts, verification services and crypto top-up — all in one app.
 
-⭐️ <b>Удобное пополнение криптой</b>, полная анонимность и быстрая выдача.
+✦ Instant delivery after payment
+✦ Money-back guarantee if declined
+✦ Anonymous and secure
 
-🛍 Жми кнопку ниже, чтобы открыть маркет 🛍`,
-  en: `⚡️ <b>Welcome to Fanvue Market!</b>
-
-🤝 Your reliable service for comfortable work.
-
-Inside the app you'll find:
-
-⭐️ <b>Ready verified accounts</b>
-Clean profiles delivered instantly after payment.
-
-⭐️ <b>Verification service</b>
-Turnkey verification on your account with full money-back guarantee if declined.
-
-⭐️ <b>Easy crypto top-up</b>, full anonymity and fast delivery.
-
-🛍 Tap the button below to open the market 🛍`,
+Tap the button below to open the market.`,
 };
 
 const OPEN_BTN: Record<Lang, string> = {

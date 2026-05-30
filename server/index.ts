@@ -131,4 +131,22 @@ app.listen(ENV.port, () => {
   console.log();
 
   startPoller();
+
+  if (ENV.webAppUrl) {
+    const webhookUrl = `${ENV.webAppUrl}/api/telegram/webhook`;
+    fetch(`https://api.telegram.org/bot${ENV.botToken}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: webhookUrl,
+        ...(ENV.webhookSecret ? { secret_token: ENV.webhookSecret } : {}),
+      }),
+    })
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const res = d as { ok: boolean; description?: string };
+        console.log(`  Webhook: ${res.ok ? "✅ set" : "❌ " + res.description} → ${webhookUrl}`);
+      })
+      .catch((e) => console.error("  Webhook setup failed:", e));
+  }
 });
