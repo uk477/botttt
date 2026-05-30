@@ -9,7 +9,7 @@ import { useToast } from '../components/Toast'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
-import { createOrder, generateOrderId, generateUniqueAmount } from '../utils/payment'
+import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } from '../utils/payment'
 import { tgNotify } from '../utils/tgNotify'
 import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
@@ -191,7 +191,7 @@ export default function ProductDetail() {
     purchaseLock.current = true
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
-    const remote = await createOrder({
+    const result = await createOrder({
       uid: user.uid,
       kind: 'buy',
       product_id: product.id,
@@ -199,6 +199,12 @@ export default function ProductDetail() {
       amount_usd: total,
       network: selectedNet,
     })
+    if (api.isEnabled() && !result.ok) {
+      toast.show(formatOrderError(result.code, result.message, lang), 'error')
+      purchaseLock.current = false
+      return
+    }
+    const remote = result.ok ? result : null
     const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
     const orderId = remote?.id ?? generateOrderId('buy')
     const uniqueAmount = remote ? total : generateUniqueAmount(total)

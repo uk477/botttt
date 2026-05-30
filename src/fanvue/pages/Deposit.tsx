@@ -10,7 +10,7 @@ import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
-import { createOrder, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
+import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
 import { useCryptoRates, calcCryptoAmount, formatCryptoAmount } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
 import { track } from '../utils/analytics'
@@ -122,17 +122,13 @@ export default function Deposit() {
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
     cancelPendingDeposits(network)
-    const remote = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network }) as { id: string; address?: string; amount_usd?: number } | null
-    if (api.isEnabled() && !remote) {
+    const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
+    if (api.isEnabled() && !result.ok) {
       setCreating(false)
-      toast.show(
-        lang === 'ru'
-          ? 'Сервер недоступен. Проверьте интернет и VITE_API_URL при сборке.'
-          : 'Server unavailable. Check network and VITE_API_URL at build time.',
-        'error',
-      )
+      toast.show(formatOrderError(result.code, result.message, lang), 'error')
       return
     }
+    const remote = result.ok ? result : null
     const depositCount = orders.filter((o) => o.kind === 'deposit').length + 1
     const orderId = remote?.id ?? generateOrderId('deposit')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(numAmount)

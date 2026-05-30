@@ -1,7 +1,6 @@
 import { getTelegramInitData } from '../utils/security'
 import { resolveApiBase } from '../utils/apiBase'
 
-const base = resolveApiBase()
 const TIMEOUT_MS = 12_000
 const MAX_RETRIES = 2
 
@@ -23,6 +22,7 @@ async function req<T>(
   body?: object,
   retries = MAX_RETRIES,
 ): Promise<T | null> {
+  const base = resolveApiBase()
   if (!base) return null
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -103,7 +103,8 @@ const patch = <T>(path: string, b: object)  => req<T>('PATCH',  path, b)
 const del  = <T>(path: string)              => req<T>('DELETE', path)
 
 export const api = {
-  isEnabled: () => !!base,
+  isEnabled: () => !!resolveApiBase(),
+  getBase: () => resolveApiBase(),
 
   getAppConfig:   ()                 => get<import('./storeConfigSync').PublicStoreConfig>('/api/config/app'),
   setUserLang:    (lang: 'ru' | 'en') => post('/api/user/lang', { lang }),

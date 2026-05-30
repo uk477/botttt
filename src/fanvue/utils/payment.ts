@@ -157,39 +157,8 @@ async function fetchWithRetry(
   throw new Error('fetch failed')
 }
 
-export async function fetchOrderStatus(orderId: string): Promise<OrderStatus> {
-  try {
-    const res = await fetchWithRetry(
-      apiUrl(`/api/order/${encodeURIComponent(orderId)}`),
-      { headers: authHeaders() },
-    )
-    if (!res.ok) return 'pending'
-    const data = (await res.json()) as { status?: OrderStatus }
-    return data.status ?? 'pending'
-  } catch {
-    return 'pending'
-  }
-}
-
-export async function createOrder(payload: {
-  uid: number
-  kind: 'buy' | 'deposit'
-  product_id?: number
-  quantity?: number
-  amount_usd: number
-  network: CryptoNetwork
-}): Promise<{ id: string; address: string; amount_usd: number; amount_crypto: number; expires_at: string } | null> {
-  try {
-    const res = await fetchWithRetry(
-      apiUrl('/api/order'),
-      { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) },
-    )
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
-    return null
-  }
-}
+export { createOrder, fetchOrderStatus, formatOrderError } from './orderApi'
+export type { CreateOrderResult } from './orderApi'
 
 export async function fetchWalletAddresses(): Promise<Partial<Record<CryptoNetwork, string>>> {
   try {
