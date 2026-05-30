@@ -225,10 +225,14 @@ export default function AdminSettings() {
           <div className="row-between">
             <div style={{ flex: 1 }}>
               <div className="t-sm fw-bold">
-                {maintenance ? t('admin_maintenance_on') : t('admin_maintenance_off')}
+                {maintenance
+                  ? (lang === 'ru' ? '⛔ Магазин ВЫКЛЮЧЕН' : '⛔ Shop is OFF')
+                  : (lang === 'ru' ? '✅ Магазин работает' : '✅ Shop is ON')}
               </div>
               <div className="t-xs t-muted mt-1">
-                {lang === 'ru' ? 'Боту прекращают приходить новые заказы' : 'No new orders accepted'}
+                {maintenance
+                  ? (lang === 'ru' ? 'Покупатели видят "Тех. работы". Выключи чтобы вернуть магазин.' : 'Buyers see maintenance screen. Toggle to bring shop back.')
+                  : (lang === 'ru' ? 'Магазин доступен покупателям. Включи чтобы закрыть на тех. работы.' : 'Shop is live. Toggle to put in maintenance mode.')}
               </div>
             </div>
             <motion.button

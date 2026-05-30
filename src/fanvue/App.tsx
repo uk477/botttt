@@ -84,7 +84,7 @@ function AppInner() {
   const showNav = !HIDE_NAV.some((p) => location.pathname.startsWith(p)) &&
     !location.pathname.startsWith('/product/')
 
-  if (maintenance) return <MaintenanceScreen />
+  if (maintenance && !isAdminRoute) return <MaintenanceScreen />
 
   if (isAdminRoute) {
     return (
