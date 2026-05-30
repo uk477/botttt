@@ -18,9 +18,9 @@ const NOTIFY_URL = CONFIG.apiUrl
   ? `${CONFIG.apiUrl}/api/notify`
   : '/api/notify'
 
-async function send(text: string, chatId?: number): Promise<void> {
+async function send(text: string, chatId?: number, buttonText?: string): Promise<void> {
   try {
-    await fetch(NOTIFY_URL, {
+    const res = await fetch(NOTIFY_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -30,9 +30,16 @@ async function send(text: string, chatId?: number): Promise<void> {
         text,
         initData: getTelegramInitData(),
         ...(chatId ? { chatId } : {}),
+        ...(buttonText ? { buttonText } : {}),
       }),
     })
-  } catch { /* best-effort — notifications must never block UX */ }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.warn(`[tgNotify] ${res.status} ${body}`)
+    }
+  } catch (e) {
+    console.warn('[tgNotify] fetch failed:', e)
+  }
 }
 
 /** Notification to admin (your personal bot / admin group) */
@@ -40,16 +47,18 @@ export function notifyAdmin(text: string): void {
   send(text)
 }
 
-/** Notification to a specific user's Telegram DM */
+/** Notification to a specific user's Telegram DM (plain text) */
 export function notifyUser(chatId: number, text: string): void {
   if (!chatId || chatId <= 0) return
   send(text, chatId)
 }
 
-/**
- * Legacy-compatible wrapper: admin notification by default,
- * user notification if userChatId is provided.
- */
+/** Notification to user with an inline "Open app" button */
+export function notifyUserWithButton(chatId: number, text: string, buttonText = 'Открыть приложение'): void {
+  if (!chatId || chatId <= 0) return
+  send(text, chatId, buttonText)
+}
+
 export async function tgNotify(text: string, userChatId?: number): Promise<void> {
   if (userChatId) {
     notifyUser(userChatId, text)

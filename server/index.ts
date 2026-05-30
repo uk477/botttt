@@ -54,6 +54,37 @@ app.use(notifyRouter);
 app.use(telegramRouter);
 app.use(adminRouter);
 
+// ── Game leaderboard ──────────────────────────────────────────────
+import { gameScores } from "./db.js";
+import { verifyInitData } from "./telegram.js";
+
+app.get("/api/game/leaderboard", (_req, res) => {
+  res.json(gameScores.top());
+});
+
+app.post("/api/game/score", (req, res) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const { name, score } = req.body as { name?: string; score?: number };
+  if (!name || typeof name !== "string" || name.trim().length < 2) {
+    res.status(400).json({ error: "Invalid name" }); return;
+  }
+  if (!score || typeof score !== "number" || score < 0) {
+    res.status(400).json({ error: "Invalid score" }); return;
+  }
+  gameScores.submit(user.id, name.trim(), Math.floor(score));
+  res.json({ ok: true });
+});
+
+app.get("/api/game/me", (req, res) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const data = gameScores.get(user.id);
+  res.json(data ?? null);
+});
+
 // ── Health check ────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime() });

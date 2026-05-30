@@ -75,6 +75,16 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS game_scores (
+    uid       INTEGER NOT NULL,
+    name      TEXT NOT NULL,
+    score     INTEGER NOT NULL DEFAULT 0,
+    ts        TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (uid)
+  );
+`);
+
 export interface OrderRow {
   id: string;
   uid: number;
@@ -306,6 +316,33 @@ export const transactions = {
   },
   exists(hash: string): boolean {
     return !!stmts.getTxByHash.get(hash);
+  },
+};
+
+// ── Game leaderboard ─────────────────────────────────────────────
+
+const gameStmts = {
+  upsert: db.prepare(`
+    INSERT INTO game_scores (uid, name, score, ts)
+    VALUES (@uid, @name, @score, datetime('now'))
+    ON CONFLICT(uid) DO UPDATE SET
+      name  = @name,
+      score = CASE WHEN @score > game_scores.score THEN @score ELSE game_scores.score END,
+      ts    = CASE WHEN @score > game_scores.score THEN datetime('now') ELSE game_scores.ts END
+  `),
+  top: db.prepare(`SELECT uid, name, score, ts FROM game_scores ORDER BY score DESC LIMIT 30`),
+  getByUid: db.prepare(`SELECT uid, name, score, ts FROM game_scores WHERE uid = ?`),
+};
+
+export const gameScores = {
+  submit(uid: number, name: string, score: number) {
+    gameStmts.upsert.run({ uid, name: name.slice(0, 16), score: Math.min(99999, Math.max(0, score)) });
+  },
+  top(): { uid: number; name: string; score: number; ts: string }[] {
+    return gameStmts.top.all() as { uid: number; name: string; score: number; ts: string }[];
+  },
+  get(uid: number) {
+    return gameStmts.getByUid.get(uid) as { uid: number; name: string; score: number; ts: string } | undefined;
   },
 };
 

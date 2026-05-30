@@ -636,7 +636,10 @@ export default function Support() {
   }, [markAdminMessagesReadByUser, messages.length]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    requestAnimationFrame(() => {
+      const el = bottomRef.current?.parentElement;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
   }, [messages, adminTyping]);
 
   // Real typing flag (debounced)
@@ -2417,13 +2420,13 @@ function Composer({
         </div>
 
         <motion.div
-          animate={{ borderColor: focused ? "rgba(57,255,99,0.45)" : C.border }}
+          animate={{ borderColor: focused ? "rgba(57,255,99,0.35)" : "transparent" }}
           transition={{ duration: 0.16 }}
           style={{
             flex: 1,
             minHeight: 38,
             background: C.surface,
-            border: `1px solid ${C.border}`,
+            border: "1.5px solid transparent",
             borderRadius: 22,
             padding: "0 14px",
             display: "flex",

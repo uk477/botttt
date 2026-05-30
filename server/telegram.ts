@@ -165,7 +165,11 @@ export async function answerCallbackQuery(
 
 export async function notifyAdmin(text: string): Promise<boolean> {
   console.log(`[telegram] notifyAdmin → chat_id=${ENV.adminChatId}`);
-  return sendMessage(ENV.adminChatId, text);
+  const ok = await sendMessage(ENV.adminChatId, text);
+  if (ENV.notifyGroupId) {
+    sendMessage(ENV.notifyGroupId, text).catch(() => {});
+  }
+  return ok;
 }
 
 export async function notifyUser(
@@ -173,4 +177,17 @@ export async function notifyUser(
   text: string,
 ): Promise<boolean> {
   return sendMessage(chatId, text);
+}
+
+export async function notifyUserWithButton(
+  chatId: number,
+  text: string,
+  buttonText = "Открыть приложение",
+): Promise<boolean> {
+  const url = ENV.webAppUrl;
+  if (!url) return sendMessage(chatId, text);
+  const { ok } = await sendMessageWithKeyboard(chatId, text, {
+    inline_keyboard: [[{ text: buttonText, web_app: { url } }]],
+  });
+  return ok;
 }

@@ -1,5 +1,5 @@
 import { orders, transactions, users, type OrderRow } from "../db.js";
-import { notifyAdmin, notifyUser } from "../telegram.js";
+import { notifyAdmin, notifyUserWithButton } from "../telegram.js";
 
 export interface IncomingTx {
   tx_hash: string;
@@ -56,19 +56,33 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
             console.log(`[matcher] CREDITED uid=${order.uid} +$${order.amount_usd}`);
           }
 
+          const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+
           notifyAdmin(
-            `✅ <b>Payment confirmed</b>\n` +
-              `Order: <code>${order.id}</code>\n` +
-              `Amount: $${order.amount_usd}\n` +
-              `Network: ${order.network}\n` +
-              `TX: <code>${tx.tx_hash}</code>\n` +
-              `UID: ${order.uid}`,
+            `✅ <b>Оплата подтверждена</b>\n\n` +
+              `🆔 Заказ: <code>${order.id}</code>\n` +
+              `💵 Сумма: $${order.amount_usd}\n` +
+              `🌐 Сеть: ${order.network.toUpperCase()}\n` +
+              `🔗 TX: <code>${tx.tx_hash.slice(0, 16)}…</code>\n` +
+              `👤 UID: ${order.uid}\n` +
+              `🕐 ${time}`,
           );
 
-          notifyUser(
+          const isDeposit = order.kind === "deposit";
+          notifyUserWithButton(
             order.uid,
-            `✅ Your deposit of $${order.amount_usd} has been confirmed!\n` +
-              `Order: ${order.id}`,
+            isDeposit
+              ? `✅ <b>Депозит зачислен</b>\n\n` +
+                `💵 Сумма: <b>$${order.amount_usd}</b>\n` +
+                `🆔 Номер: <code>${order.id}</code>\n` +
+                `🕐 ${time}\n\n` +
+                `Средства уже на вашем балансе.`
+              : `✅ <b>Оплата получена</b>\n\n` +
+                `💵 Сумма: <b>$${order.amount_usd}</b>\n` +
+                `🆔 Заказ: <code>${order.id}</code>\n` +
+                `🕐 ${time}\n\n` +
+                `Ваш заказ принят в обработку.`,
+            isDeposit ? "Открыть баланс" : "Посмотреть заказ",
           );
         }
       }, 5000);

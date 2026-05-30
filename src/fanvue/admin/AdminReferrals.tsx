@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import CryptoLogo from '../components/CryptoLogo'
 import { useStore, CRYPTO_OPTIONS } from '../store'
-import { tgNotify, notifyUser, notifyAdmin } from '../utils/tgNotify'
+import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
 import type { RefWithdrawal } from '../store/types'
 
 type Tab = 'pending' | 'all'
@@ -67,7 +67,7 @@ function TxidInput({ id }: { id: string }) {
               'Спасибо, что используете Fanvue Market!',
               'Рады сотрудничеству 🤝',
             ].filter(Boolean).join('\n')
-            if (w.uid) notifyUser(w.uid, userMsg)
+            if (w.uid) notifyUserWithButton(w.uid, userMsg, 'Открыть баланс')
             notifyAdmin(`✅ Вывод одобрен\n🆔 ${w.id}\n💵 $${w.amount.toFixed(2)} · ${net?.name ?? w.network}\n${tx ? `🔗 ${tx}` : ''}`)
           }}
           whileTap={{ scale: 0.97 }}
@@ -110,16 +110,14 @@ function TxidInput({ id }: { id: string }) {
                 rejectReason: trimmed,
               })
               if (w?.uid) {
-                notifyUser(w.uid, [
-                  '❌ Заявка на вывод отклонена',
+                notifyUserWithButton(w.uid, [
+                  '<b>Заявка на вывод отклонена</b>',
                   '',
                   `🆔 ${w.id}`,
                   `💵 $${w.amount.toFixed(2)} возвращены на реф. баланс`,
                   '',
                   `📝 Причина: ${trimmed}`,
-                  '',
-                  'Если у вас есть вопросы — обратитесь в поддержку.',
-                ].join('\n'))
+                ].join('\n'), 'Открыть приложение')
               }
               notifyAdmin([
                 '❌ Вывод отклонён',

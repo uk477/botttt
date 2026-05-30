@@ -4,7 +4,7 @@ import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useTelegram } from '../hooks/useTelegram'
-import { tgNotify, notifyUser, notifyAdmin } from '../utils/tgNotify'
+import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
 import { CONFIG } from '../config'
 import type { SupportMessage, SupportTicket } from '../store/types'
 import OrderReceiptMessage from '../components/OrderReceiptMessage'
@@ -215,9 +215,12 @@ export default function AdminSupport() {
     })
     setReply(''); setReplyTo(null)
     if (openUid) {
-      notifyUser(openUid, `💬 Вам пришло сообщение от поддержки ${CONFIG.brandName}\n\n${trimmed}\n\nОткройте приложение для ответа.`)
+      notifyUserWithButton(
+        openUid,
+        `<b>Поддержка ${CONFIG.brandName}</b>\n\nВам ответили на обращение.`,
+        'Посмотреть ответ',
+      )
     }
-    notifyAdmin(`💬 Ответ в поддержку\n👤 UID: ${openUid ?? '—'}\n\n${trimmed}`)
   }
 
   const insertCanned = (txt: string) => {
@@ -233,12 +236,6 @@ export default function AdminSupport() {
   const handleCloseTicket = () => {
     if (!activeTicket) return
     haptic('success'); closeTicket(activeTicket.id, 'admin'); setConfirmClose(false)
-    if (openUid) {
-      notifyUser(openUid, lang === 'ru'
-        ? `✅ Ваше обращение ${activeTicket.id} закрыто. Если нужна помощь — напишите снова.`
-        : `✅ Your ticket ${activeTicket.id} has been closed. Reach out anytime if you need more help.`)
-    }
-    notifyAdmin(`✅ Тикет ${activeTicket.id} закрыт · UID: ${openUid ?? '—'}`)
   }
   const handleIssueBalance = () => {
     const amt = parseFloat(balanceInput)
@@ -251,10 +248,21 @@ export default function AdminSupport() {
     if (!chatOrder) return
     haptic('success')
     setOrderStatus(chatOrder.id, 'completed')
+    const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     if (openUid) {
-      notifyUser(openUid, `🎉 Ваш заказ выдан!\n\n📦 ${chatOrder.product_title ?? chatOrder.id}\n💵 $${chatOrder.amount.toFixed(2)}\n🆔 #${chatOrder.id}\n\nОткройте приложение для получения.`)
+      notifyUserWithButton(
+        openUid,
+        `<b>Заказ выдан</b>\n\n` +
+          `📦 ${chatOrder.product_title ?? 'Товар'}\n` +
+          `💵 $${chatOrder.amount.toFixed(2)}\n` +
+          `🆔 <code>${chatOrder.id}</code>\n` +
+          `🕐 ${time}`,
+        'Открыть заказ',
+      )
     }
-    notifyAdmin(`📦 Заказ выдан\n🆔 ${chatOrder.id}\n👤 UID: ${openUid ?? '—'}\n💵 $${chatOrder.amount.toFixed(2)}`)
+    notifyAdmin(
+      `📦 Заказ выдан\n🆔 ${chatOrder.id}\n👤 UID: ${openUid ?? '—'}\n💵 $${chatOrder.amount.toFixed(2)}\n🕐 ${time}`,
+    )
   }
 
   /* ─────────── canned replies ─────────── */

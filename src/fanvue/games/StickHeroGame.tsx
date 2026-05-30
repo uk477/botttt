@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
+import { getTelegramInitData } from '../utils/security'
+import { CONFIG } from '../config'
 
+const API = CONFIG.apiUrl || ''
+const headers = () => ({
+  'Content-Type': 'application/json',
+  'X-Telegram-Init-Data': getTelegramInitData(),
+})
 
 /* ───────── constants ───────── */
 const STICK_GROW = 240
@@ -57,12 +64,14 @@ interface GameState {
   eggT: number
 }
 
+type LeaderEntry = { uid: number; name: string; score: number; ts: string }
+
 export default function StickHeroGame({ onExit }: { onExit: () => void }) {
   const lang = useStore((s) => s.lang)
-  const scores = useStore((s) => s.stickHeroScores)
-  const addScore = useStore((s) => s.addStickHeroScore)
-  const savedName = useStore((s) => s.stickHeroName)
-  const setSavedName = useStore((s) => s.setStickHeroName)
+  const localScores = useStore((s) => s.stickHeroScores)
+  const addLocalScore = useStore((s) => s.addStickHeroScore)
+  const localName = useStore((s) => s.stickHeroName)
+  const setLocalName = useStore((s) => s.setStickHeroName)
   const { haptic } = useTelegram()
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -71,9 +80,47 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
   const [score, setScore] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [over, setOver] = useState(false)
-  const [needName, setNeedName] = useState(!savedName)
   const [nameInput, setNameInput] = useState('')
   const [flipped, setFlipped] = useState(false)
+
+  const [serverBoard, setServerBoard] = useState<LeaderEntry[]>([])
+  const [savedName, setSavedNameState] = useState<string | null>(localName)
+  const [needName, setNeedName] = useState(!localName)
+
+  const fetchBoard = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/api/game/leaderboard`)
+      if (r.ok) setServerBoard(await r.json())
+    } catch { /* offline fallback */ }
+  }, [])
+
+  useEffect(() => {
+    fetchBoard()
+    fetch(`${API}/api/game/me`, { headers: headers() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.name) {
+          setSavedNameState(d.name)
+          setLocalName(d.name)
+          setNeedName(false)
+        }
+      })
+      .catch(() => {})
+  }, [fetchBoard, setLocalName])
+
+  const setSavedName = (name: string) => {
+    setSavedNameState(name)
+    setLocalName(name)
+  }
+
+  const submitScore = (name: string, s: number) => {
+    addLocalScore(s)
+    fetch(`${API}/api/game/score`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ name, score: s }),
+    }).then(() => fetchBoard()).catch(() => {})
+  }
 
   // Hide global bottom nav while the game is open
   useEffect(() => {
@@ -232,17 +279,16 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
       }
       ctx.globalAlpha = 1
 
-      // motion blur trail behind hero while plunging
-      if (st.phase === 'egg_fall' && st.heroVy > 200) {
-        const trails = 6
+      if (st.phase === 'egg_fall' && st.heroVy > 100) {
+        const trails = 10
         for (let i = 1; i <= trails; i++) {
           const k = i / trails
-          ctx.globalAlpha = 0.18 * (1 - k)
+          ctx.globalAlpha = 0.22 * (1 - k)
           drawHero(
             ctx,
-            st.heroX,
-            groundY + st.heroY - st.heroVy * 0.012 * k,
-            st.heroRot - 28 * k,
+            st.heroX + (Math.random() - 0.5) * k * 4,
+            groundY + st.heroY - st.heroVy * 0.015 * k,
+            st.heroRot - 40 * k,
             st.walkPhase, st.capWobble, false, 'scared',
           )
         }
@@ -349,106 +395,132 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
       } else if (st.phase === 'camera') {
         cameraTween(st, dt)
       } else if (st.phase === 'egg_stumble') {
-        // teeter on the edge — losing balance, arms flailing
         st.eggT += dt
-        const wobble = Math.sin(st.eggT * 22)
-        st.heroRot = wobble * 12 * Math.min(1, st.eggT * 2)
-        st.heroX = (st.cur.x + st.cur.w - HERO_W) + wobble * 1.6
-        st.shake = Math.max(st.shake, 0.25)
-        // tiny dust puffs at feet
-        if (Math.random() < 0.4) {
-          emitParticles(st.heroX + HERO_W/2, groundY - 1, 'rgba(180,200,180,0.6)', 1)
+        const wobble = Math.sin(st.eggT * 28)
+        const intensity = Math.min(1, st.eggT * 1.5)
+        st.heroRot = wobble * 18 * intensity
+        st.heroX = (st.cur.x + st.cur.w - HERO_W) + wobble * 2.5
+        st.shake = Math.max(st.shake, 0.15 + intensity * 0.6)
+        if (Math.random() < 0.6) {
+          const cx = st.heroX + HERO_W / 2
+          st.particles.push({
+            x: cx + (Math.random() - 0.5) * 8, y: groundY,
+            vx: (Math.random() - 0.5) * 60, vy: -20 - Math.random() * 40,
+            life: 0, max: 0.4 + Math.random() * 0.3,
+            color: Math.random() < 0.5 ? '#39ff63' : 'rgba(255,255,255,0.6)',
+            size: 1 + Math.random() * 2,
+          })
         }
-        if (st.eggT > 0.85) {
-          // tip over — start the real plunge
+        if (st.eggT > 1.1) {
           st.eggT = 0
-          st.heroVy = -260 // little hop up first for drama
-          st.heroRot = -18
+          st.heroVy = -380
+          st.heroRot = -15
           st.phase = 'egg_fall'
           haptic('warning')
-          // big dust burst on platform edge
-          for (let i = 0; i < 16; i++) {
-            const a = -Math.PI/2 + (Math.random() - 0.5) * Math.PI
-            const sp = 60 + Math.random() * 120
+          for (let i = 0; i < 30; i++) {
+            const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.2
+            const sp = 80 + Math.random() * 200
             st.particles.push({
-              x: st.heroX + HERO_W/2, y: groundY,
+              x: st.heroX + HERO_W / 2, y: groundY,
               vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-              life: 0, max: 0.7 + Math.random() * 0.4,
-              color: i % 3 === 0 ? '#39ff63' : 'rgba(200,210,200,0.85)',
-              size: 1.5 + Math.random() * 2.5,
+              life: 0, max: 0.8 + Math.random() * 0.5,
+              color: ['#39ff63', '#7bffb8', '#ffcb3a', '#ff6b6b', '#ffffff'][Math.floor(Math.random() * 5)],
+              size: 2 + Math.random() * 3,
             })
           }
         }
       } else if (st.phase === 'egg_fall') {
-        // dramatic plunge — strong gravity, spin, trail, growing shake
         st.eggT += dt
-        st.heroVy += 2200 * dt
+        const grav = 2800 + st.eggT * 1200
+        st.heroVy += grav * dt
         st.heroY += st.heroVy * dt
-        st.heroRot += 460 * dt
-        st.shake = Math.max(st.shake, Math.min(1.2, 0.2 + st.eggT * 0.9))
-        // trail of green sparks
-        if (Math.random() < 0.8) {
+        st.heroRot += 720 * dt
+        st.shake = Math.max(st.shake, Math.min(1.8, 0.3 + st.eggT * 1.4))
+        for (let i = 0; i < 3; i++) {
           st.particles.push({
-            x: st.heroX + HERO_W/2 + (Math.random() - 0.5) * 6,
-            y: groundY + st.heroY - 12 + (Math.random() - 0.5) * 6,
-            vx: (Math.random() - 0.5) * 40, vy: -st.heroVy * 0.15,
-            life: 0, max: 0.4 + Math.random() * 0.3,
-            color: Math.random() < 0.5 ? '#39ff63' : '#7bffb8',
-            size: 1 + Math.random() * 1.8,
+            x: st.heroX + HERO_W / 2 + (Math.random() - 0.5) * 10,
+            y: groundY + st.heroY - 10 + (Math.random() - 0.5) * 10,
+            vx: (Math.random() - 0.5) * 80, vy: -st.heroVy * 0.2 - Math.random() * 40,
+            life: 0, max: 0.35 + Math.random() * 0.25,
+            color: ['#39ff63', '#7bffb8', '#ffcb3a', '#ff4444', '#ffffff'][Math.floor(Math.random() * 5)],
+            size: 1.5 + Math.random() * 2.5,
           })
         }
-        if (st.heroY > 260) {
+        if (st.heroY > 280) {
           st.phase = 'egg_impact'
           st.eggT = 0
-          st.perfectFlash = 1.4
-          st.shake = 1
+          st.perfectFlash = 2.0
+          st.shake = 2.5
           haptic('heavy')
+          const cx = st.heroX + HERO_W / 2
+          for (let i = 0; i < 80; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 100 + Math.random() * 400
+            st.particles.push({
+              x: cx + (Math.random() - 0.5) * 20, y: groundY + 20,
+              vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 100,
+              life: 0, max: 0.8 + Math.random() * 0.8,
+              color: ['#39ff63', '#7bffb8', '#ffcb3a', '#ff6b6b', '#ffffff', '#a855f7', '#3b82f6'][Math.floor(Math.random() * 7)],
+              size: 2 + Math.random() * 5,
+            })
+          }
         }
       } else if (st.phase === 'egg_impact') {
-        // brief white-out, then world flips
         st.eggT += dt
-        if (st.eggT > 0.18) {
+        st.shake = Math.max(st.shake - dt * 3, 0.5)
+        if (st.eggT > 0.3) {
           st.phase = 'egg_flip'
           st.eggT = 0
           setFlipped(true)
-          haptic('medium')
+          haptic('heavy')
+          st.perfectFlash = 1.0
         }
       } else if (st.phase === 'egg_flip') {
-        // hold the upside-down world a beat
         st.eggT += dt
-        if (st.eggT > 1.1) {
+        st.shake = Math.max(0, st.shake - dt * 2)
+        if (Math.random() < 0.4) {
+          st.particles.push({
+            x: Math.random() * cvs.clientWidth + st.cameraX,
+            y: Math.random() * (groundY - 40),
+            vx: (Math.random() - 0.5) * 60, vy: 30 + Math.random() * 60,
+            life: 0, max: 0.5 + Math.random() * 0.5,
+            color: ['#39ff63', '#a855f7', '#ffcb3a'][Math.floor(Math.random() * 3)],
+            size: 1.5 + Math.random() * 3,
+          })
+        }
+        if (st.eggT > 1.4) {
           setFlipped(false)
           st.phase = 'egg_unflip'
           st.eggT = 0
+          haptic('medium')
         }
       } else if (st.phase === 'egg_unflip') {
         st.eggT += dt
-        if (st.eggT > 0.55) {
-          // hero "lands" back on the platform with a puff
+        if (st.eggT > 0.6) {
           st.heroY = 0; st.heroVy = 0; st.heroRot = 0
           st.heroX = st.cur.x + st.cur.w - HERO_W
-          st.shake = 0.6
-          // landing dust ring
-          for (let i = 0; i < 14; i++) {
-            const a = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 0.9
-            const sp = 50 + Math.random() * 100
+          st.shake = 1.0
+          haptic('success')
+          const cx = st.heroX + HERO_W / 2
+          for (let i = 0; i < 40; i++) {
+            const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5
+            const sp = 60 + Math.random() * 180
             st.particles.push({
-              x: st.heroX + HERO_W/2, y: groundY,
-              vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6,
-              life: 0, max: 0.55 + Math.random() * 0.3,
-              color: 'rgba(200,210,200,0.8)',
-              size: 1.4 + Math.random() * 2,
+              x: cx, y: groundY,
+              vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5,
+              life: 0, max: 0.6 + Math.random() * 0.4,
+              color: ['#39ff63', '#7bffb8', '#ffcb3a', '#ffffff'][Math.floor(Math.random() * 4)],
+              size: 2 + Math.random() * 3,
             })
           }
-          haptic('success')
           st.eggT = 0
           st.phase = 'egg_land'
         }
       } else if (st.phase === 'egg_land') {
-        // dizzy beat, then continue
         st.eggT += dt
-        st.heroRot = Math.sin(st.eggT * 8) * 4 * Math.max(0, 1 - st.eggT * 1.2)
-        if (st.eggT > 0.7) {
+        st.heroRot = Math.sin(st.eggT * 10) * 6 * Math.max(0, 1 - st.eggT * 1.0)
+        st.shake = Math.max(0, st.shake - dt * 1.5)
+        if (st.eggT > 0.9) {
           st.heroRot = 0
           animateCamera(st, () => {
             st.cur = { ...st.next }
@@ -472,9 +544,9 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
           if (st.heroY > 180) {
             st.phase = 'gameover'
             setOver(true)
-            if (!submittedRef.current) {
+            if (!submittedRef.current && savedName) {
               submittedRef.current = true
-              addScore(st.score)
+              submitScore(savedName, st.score)
             }
           }
         }
@@ -539,7 +611,9 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
     stRef.current.last = performance.now()
   }
 
-  const top10 = [...scores].sort((a, b) => b.score - a.score).slice(0, 10)
+  const top10 = serverBoard.length > 0
+    ? serverBoard.slice(0, 10)
+    : [...localScores].sort((a, b) => b.score - a.score).slice(0, 10)
   const best = top10[0]?.score ?? 0
   const T = (ru: string, en: string) => (lang === 'ru' ? ru : en)
 
@@ -616,8 +690,8 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
         ref={wrapRef}
         style={{
           flex: 1, position: 'relative',
-          transform: flipped ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.65s cubic-bezier(0.65,0,0.35,1)',
+          transform: flipped ? 'rotate(180deg) scale(1.05)' : 'rotate(0deg) scale(1)',
+          transition: 'transform 0.5s cubic-bezier(0.22,1,0.36,1)',
           transformOrigin: 'center center',
         }}
       >

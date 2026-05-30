@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyAdmin } from "../telegram.js";
 import { orders } from "../db.js";
 import { ENV } from "../env.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
@@ -125,6 +125,14 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
 
   console.log(
     `[order] created ${id} | ${network} | $${uniqueUsd} | ${amountCrypto} crypto | uid=${user.id}`,
+  );
+
+  const userName = user.username ? `@${user.username}` : user.first_name;
+  notifyAdmin(
+    `🆕 <b>New ${kind === "deposit" ? "deposit" : "order"}</b>\n` +
+      `👤 ${userName} (ID: ${user.id})\n` +
+      `💵 $${uniqueUsd.toFixed(2)} · ${network.toUpperCase()}\n` +
+      `🆔 <code>${id}</code>`,
   );
 
   res.json({

@@ -53,13 +53,16 @@ export default function Home() {
   const recentSales = useMemo(() => {
     const fakes = getRecentSales(3, new Date(now))
     const merged = [
-      ...realSales.map((s) => ({
-        buyerId: `real-${s.uid}`,
-        handle: s.username || s.full_name.slice(0, 4).toUpperCase(),
-        avatar: s.photo_url || `https://api.dicebear.com/9.x/avataaars/svg?seed=${s.uid}&radius=50`,
-        productIndex: s.productIndex,
-        ts: s.ts,
-      })),
+      ...realSales.map((s) => {
+        const h = ((s.uid * 2654435761) >>> 0).toString(16).toUpperCase().slice(0, 4)
+        return {
+          buyerId: `real-${s.uid}`,
+          handle: h,
+          avatar: `https://api.dicebear.com/9.x/avataaars/svg?seed=real${s.uid}&radius=50`,
+          productIndex: s.productIndex,
+          ts: s.ts,
+        }
+      }),
       ...fakes,
     ]
       .sort((a, b) => b.ts - a.ts)

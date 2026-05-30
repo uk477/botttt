@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyAdmin, notifyUser } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyAdmin, notifyUser, notifyUserWithButton } from "../telegram.js";
 
 const router = Router();
 
@@ -21,7 +21,11 @@ router.post("/api/notify", notifyLimiter, (req: Request, res: Response) => {
     return;
   }
 
-  const { text, chatId } = req.body as { text?: string; chatId?: number };
+  const { text, chatId, buttonText } = req.body as {
+    text?: string;
+    chatId?: number;
+    buttonText?: string;
+  };
   if (!text || typeof text !== "string" || text.length > 4000) {
     res.status(400).json({ error: "Invalid text" });
     return;
@@ -36,7 +40,11 @@ router.post("/api/notify", notifyLimiter, (req: Request, res: Response) => {
       res.status(400).json({ error: "Invalid chatId" });
       return;
     }
-    notifyUser(chatId, text);
+    if (buttonText) {
+      notifyUserWithButton(chatId, text, buttonText);
+    } else {
+      notifyUser(chatId, text);
+    }
   } else {
     notifyAdmin(text);
   }
