@@ -123,6 +123,16 @@ export default function Deposit() {
     audit('deposit_start', user.uid, { amount: numAmount, network })
     cancelPendingDeposits(network)
     const remote = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network }) as { id: string; address?: string; amount_usd?: number } | null
+    if (api.isEnabled() && !remote) {
+      setCreating(false)
+      toast.show(
+        lang === 'ru'
+          ? 'Сервер недоступен. Проверьте интернет и VITE_API_URL при сборке.'
+          : 'Server unavailable. Check network and VITE_API_URL at build time.',
+        'error',
+      )
+      return
+    }
     const depositCount = orders.filter((o) => o.kind === 'deposit').length + 1
     const orderId = remote?.id ?? generateOrderId('deposit')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(numAmount)

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { api } from '../store/api'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
 import PageTransition from '../components/PageTransition'
@@ -49,11 +50,19 @@ export default function AdminDeposits() {
   const lang   = useStore((s) => s.lang)
   const logs   = useStore((s) => s.logs)
   const orders = useStore((s) => s.orders)
-  const user   = useStore((s) => s.user)
+  const adminUserByUid = useStore((s) => s.adminUserByUid)
+  const syncAdminData = useStore((s) => s.syncAdminData)
 
   const [period, setPeriod] = useState<Period>('all')
   const [filter, setFilter] = useState<Filter>('all')
   const [exportOpen, setExportOpen] = useState(false)
+
+  useEffect(() => {
+    if (!api.isEnabled()) return
+    void syncAdminData()
+    const id = window.setInterval(() => void syncAdminData(), 20_000)
+    return () => window.clearInterval(id)
+  }, [syncAdminData])
 
   /* unified deposits: orders (live) + payment logs (mock/history) */
   type Dep = {
@@ -70,19 +79,24 @@ export default function AdminDeposits() {
   const deposits = useMemo<Dep[]>(() => {
     const fromOrders: Dep[] = orders
       .filter((o) => o.kind === 'deposit')
-      .map((o) => ({
-        id: o.id,
-        ts: o.created,
-        username: user?.username ?? user?.full_name ?? 'guest',
-        uid: user?.uid ?? '—',
-        amount: o.amount,
-        network: o.provider,
-        status:
-          o.status === 'paid' || o.status === 'completed' ? 'success' :
-          o.status === 'failed' ? 'failed' :
-          o.status === 'expired' ? 'expired' : 'pending',
-        tx_hash: o.txid,
-      }))
+      .map((o) => {
+        const uid = o.uid ?? 0
+        const u = uid ? adminUserByUid[uid] : undefined
+        const label = u?.username ? `@${u.username}` : u?.full_name || (uid ? `UID ${uid}` : '—')
+        return {
+          id: o.id,
+          ts: o.created,
+          username: label,
+          uid: uid || '—',
+          amount: o.amount,
+          network: o.provider,
+          status:
+            o.status === 'paid' || o.status === 'completed' ? 'success' :
+            o.status === 'failed' ? 'failed' :
+            o.status === 'expired' ? 'expired' : 'pending',
+          tx_hash: o.txid,
+        }
+      })
 
     const fromLogs: Dep[] = logs
       .filter((l) => l.kind === 'deposit')
@@ -100,7 +114,7 @@ export default function AdminDeposits() {
     return [...fromOrders, ...fromLogs]
       .filter((d) => withinPeriod(d.ts, period))
       .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-  }, [orders, logs, user, period])
+  }, [orders, logs, adminUserByUid, period])
 
   const list = useMemo(
     () => filter === 'all' ? deposits : deposits.filter((d) => d.status === filter),

@@ -54,6 +54,17 @@ export function hasTelegramContext(): boolean {
   return d.length > 0 && d.includes('user=')
 }
 
+/** Wait until Telegram WebApp injects initData (needed right after mini-app open). */
+export async function waitForTelegramContext(maxMs = 5000): Promise<boolean> {
+  if (hasTelegramContext()) return true
+  const start = Date.now()
+  while (Date.now() - start < maxMs) {
+    await new Promise((r) => setTimeout(r, 120))
+    if (hasTelegramContext()) return true
+  }
+  return hasTelegramContext()
+}
+
 // ── XSS sanitisation ─────────────────────────────────────────
 
 const HTML_ESCAPE: Record<string, string> = {

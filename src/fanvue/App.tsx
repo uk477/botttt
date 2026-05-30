@@ -102,10 +102,7 @@ function AppInner() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
-      void useStore.getState().syncStoreConfig()
-      void useStore.getState().refreshUser()
-      const s = useStore.getState()
-      if (s._adminVerified) void s.syncAdminData()
+      void useStore.getState().pullServerSession()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)

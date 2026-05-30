@@ -9,6 +9,8 @@ import {
   isValidAmount,
   createFinancialNonce,
   audit,
+  hasTelegramContext,
+  waitForTelegramContext,
 } from '../utils/security'
 import type {
   Lang, User, Category, Product, Order, SupportMessage, CartItem, CryptoOption,
@@ -72,6 +74,23 @@ const MOCK_ORDERS: Order[] = []
 
 // Empty by default — bot triage greeting will be shown
 const MOCK_SUPPORT: SupportMessage[] = []
+
+/** Server wins on conflict; keep recent local-only pending if server list missed them. */
+function mergeServerOrders(local: Order[], server: Order[]): Order[] {
+  const byId = new Map<string, Order>()
+  for (const o of server) byId.set(o.id, o)
+  const now = Date.now()
+  for (const o of local) {
+    if (byId.has(o.id)) continue
+    if (o.status !== 'pending') continue
+    const age = now - new Date(o.created).getTime()
+    if (age > 3 * 3600_000) continue
+    byId.set(o.id, o)
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
+  )
+}
 
 function syncNotificationsWithOrders(
   notifications: PaymentNotification[],
@@ -160,11 +179,16 @@ interface AppStore {
   supportUnread: number
   stickHeroScores: { name: string; score: number; ts: number }[]
   stickHeroName: string | null
+  /** Admin panel: uid → display name (from server). */
+  adminUserByUid: Record<number, { username: string; full_name: string }>
+  _serverPullInFlight: boolean
 
   // User actions
   setLang: (lang: Lang) => void
   initUser: () => void
   bootstrapSession: () => Promise<void>
+  /** Re-fetch balance, orders, admin data (safe on every mini-app reopen). */
+  pullServerSession: () => Promise<void>
   setCart: (cart: CartItem | null) => void
   addOrder: (order: Order) => void
   addSupportMessage: (msg: SupportMessage) => void
@@ -255,7 +279,8 @@ export const useStore = create<AppStore>()(
       realSales: [],
       _adminVerified: false,
       _adminCheckDone: false,
-      _sessionBootstrapped: false,
+      adminUserByUid: {},
+      _serverPullInFlight: false,
 
       cryptoAddresses: { ...CONFIG.addresses },
       maintenance: false,
@@ -304,73 +329,20 @@ export const useStore = create<AppStore>()(
         }
       },
 
-      bootstrapSession: async () => {
-        if (get()._sessionBootstrapped) return
-        set({ isLoading: true })
-
+      pullServerSession: async () => {
+        if (!api.isEnabled() || get()._serverPullInFlight) return
+        set({ _serverPullInFlight: true })
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-        type TGUser = {
-          id?: number
-          username?: string
-          first_name?: string
-          last_name?: string
-          language_code?: string
-          photo_url?: string
-        }
-        const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser; start_param?: string } } } }).Telegram?.WebApp
-        const tgUser = tg?.initDataUnsafe?.user
-        const startParam = tg?.initDataUnsafe?.start_param ?? ''
-        const state = get()
-
         try {
-          if (!tgUser?.id) {
-            set({ isLoading: false, storeConfigLoaded: true, _adminCheckDone: true })
-            return
-          }
-
-          const uid = tgUser.id
-          const detectedLang: Lang = tgUser.language_code?.startsWith('ru') ? 'ru' : 'en'
-          const initialLang: Lang = state.langUserSet
-            ? state.lang
-            : (startParam === 'en' || startParam === 'lang_en' ? 'en'
-              : startParam === 'ru' || startParam === 'lang_ru' ? 'ru'
-              : detectedLang)
-
-          const persisted = state.user?.uid === uid ? state.user : null
-          set({
-            lang: initialLang,
-            langUserSet: state.langUserSet,
-            user: {
-              ...(persisted ?? { ...MOCK_USER, uid }),
-              uid,
-              username: tgUser.username ?? persisted?.username ?? '',
-              full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || persisted?.full_name || '',
-              photo_url: tgUser.photo_url ?? persisted?.photo_url,
-              balance: persisted?.balance ?? 0,
-              spent: persisted?.spent ?? 0,
-              purchases: persisted?.purchases ?? 0,
-              ref_earned: persisted?.ref_earned ?? 0,
-              ref_count: persisted?.ref_count ?? 0,
-              ref_balance: persisted?.ref_balance ?? 0,
-            },
-          })
-
-          verifyAdminHash(uid, CONFIG.adminHashes).then((ok) => {
-            set({ _adminVerified: ok, _adminCheckDone: true })
-            if (ok && api.isEnabled()) void get().syncAdminData()
-          }).catch(() => set({ _adminCheckDone: true }))
-
-          if (!api.isEnabled()) {
-            set({ isLoading: false, storeConfigLoaded: true })
-            return
-          }
+          await waitForTelegramContext(5000)
+          if (!hasTelegramContext()) return
 
           await get().syncStoreConfig()
 
           let serverUser: Record<string, unknown> | null = null
-          for (let attempt = 0; attempt < 6; attempt++) {
-            if (attempt > 0) await sleep(250)
+          for (let attempt = 0; attempt < 8; attempt++) {
+            if (attempt > 0) await sleep(300)
             const res = await api.auth({})
             if (res && typeof res === 'object') {
               serverUser = res as Record<string, unknown>
@@ -380,35 +352,42 @@ export const useStore = create<AppStore>()(
 
           if (serverUser) {
             const u = serverUser
+            const uid = Number(u.uid)
             if (!get().langUserSet && (u.preferred_lang === 'ru' || u.preferred_lang === 'en')) {
               set({ lang: u.preferred_lang as Lang })
             }
             if (u.isAdmin === true) {
               set({ _adminVerified: true, _adminCheckDone: true })
-              void get().syncAdminData()
             }
             if (typeof u.maintenance === 'boolean') {
               set({ maintenance: u.maintenance as boolean })
             }
             set((s) => ({
-              user: s.user ? {
-                ...s.user,
-                balance: Number(u.balance ?? s.user.balance),
-                spent: Number(u.spent ?? s.user.spent),
-                purchases: Number(u.purchases ?? s.user.purchases),
-                ref_earned: Number(u.ref_earned ?? s.user.ref_earned),
-                ref_count: Number(u.ref_count ?? s.user.ref_count),
-                ref_balance: Number(u.ref_balance ?? s.user.ref_balance),
-              } : s.user,
+              user: {
+                ...(s.user && s.user.uid === uid ? s.user : { ...MOCK_USER, uid }),
+                uid,
+                username: String(u.username ?? s.user?.username ?? ''),
+                full_name: String(
+                  [u.first_name, u.last_name].filter(Boolean).join(' ') || s.user?.full_name || '',
+                ),
+                photo_url: (u.photo_url as string | undefined) ?? s.user?.photo_url,
+                balance: Number(u.balance ?? 0),
+                spent: Number(u.spent ?? 0),
+                purchases: Number(u.purchases ?? 0),
+                ref_earned: Number(u.ref_earned ?? 0),
+                ref_count: Number(u.ref_count ?? 0),
+                ref_balance: Number(u.ref_balance ?? 0),
+              },
             }))
           }
 
           const ordersRes = await api.getMyOrders()
           if (ordersRes && typeof ordersRes === 'object' && Array.isArray((ordersRes as { orders?: unknown }).orders)) {
             const mapped = ((ordersRes as { orders: Record<string, unknown>[] }).orders).map(mapServerOrder)
+            const merged = mergeServerOrders(get().orders, mapped)
             set({
-              orders: mapped,
-              notifications: syncNotificationsWithOrders(get().notifications, mapped),
+              orders: merged,
+              notifications: syncNotificationsWithOrders(get().notifications, merged),
             })
           }
 
@@ -431,14 +410,76 @@ export const useStore = create<AppStore>()(
             }
             if (Object.keys(update).length > 0) set(update)
           }
+
+          if (get()._adminVerified) {
+            await get().syncAdminData()
+          }
+        } finally {
+          set({ _serverPullInFlight: false })
+        }
+      },
+
+      bootstrapSession: async () => {
+        set({ isLoading: true })
+
+        type TGUser = {
+          id?: number
+          username?: string
+          first_name?: string
+          last_name?: string
+          language_code?: string
+          photo_url?: string
+        }
+        const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser; start_param?: string } } } }).Telegram?.WebApp
+        const tgUser = tg?.initDataUnsafe?.user
+        const startParam = tg?.initDataUnsafe?.start_param ?? ''
+        const state = get()
+
+        try {
+          if (tgUser?.id) {
+            const uid = tgUser.id
+            const detectedLang: Lang = tgUser.language_code?.startsWith('ru') ? 'ru' : 'en'
+            const initialLang: Lang = state.langUserSet
+              ? state.lang
+              : (startParam === 'en' || startParam === 'lang_en' ? 'en'
+                : startParam === 'ru' || startParam === 'lang_ru' ? 'ru'
+                : detectedLang)
+
+            set({
+              lang: initialLang,
+              langUserSet: state.langUserSet,
+              user: {
+                ...MOCK_USER,
+                uid,
+                username: tgUser.username ?? '',
+                full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' '),
+                photo_url: tgUser.photo_url,
+                balance: 0,
+                spent: 0,
+                purchases: 0,
+                ref_earned: 0,
+                ref_count: 0,
+                ref_balance: 0,
+              },
+            })
+
+            verifyAdminHash(uid, CONFIG.adminHashes).then((ok) => {
+              set({ _adminVerified: ok, _adminCheckDone: true })
+            }).catch(() => set({ _adminCheckDone: true }))
+          } else {
+            set({ _adminCheckDone: true })
+          }
+
+          if (api.isEnabled()) {
+            await get().pullServerSession()
+          }
         } catch {
-          /* keep persisted state */
+          /* ignore */
         } finally {
           set({
             isLoading: false,
             storeConfigLoaded: true,
             _adminCheckDone: true,
-            _sessionBootstrapped: true,
           })
         }
       },
@@ -649,32 +690,7 @@ export const useStore = create<AppStore>()(
       },
 
       refreshUser: async () => {
-        if (!api.isEnabled()) return
-        try {
-          const serverUser = await api.auth({})
-          if (serverUser && typeof serverUser === 'object') {
-            const u = serverUser as Record<string, unknown>
-            set((s) => ({
-              user: s.user ? {
-                ...s.user,
-                balance:     Number(u.balance     ?? s.user.balance),
-                spent:       Number(u.spent       ?? s.user.spent),
-                purchases:   Number(u.purchases   ?? s.user.purchases),
-                ref_earned:  Number(u.ref_earned  ?? s.user.ref_earned),
-                ref_count:   Number(u.ref_count   ?? s.user.ref_count),
-                ref_balance: Number(u.ref_balance ?? s.user.ref_balance),
-              } : s.user,
-            }))
-          }
-          const ordersRes = await api.getMyOrders()
-          if (ordersRes && typeof ordersRes === 'object' && Array.isArray((ordersRes as { orders?: unknown }).orders)) {
-            const mapped = ((ordersRes as { orders: Record<string, unknown>[] }).orders).map(mapServerOrder)
-            set({
-              orders: mapped,
-              notifications: syncNotificationsWithOrders(get().notifications, mapped),
-            })
-          }
-        } catch { /* ignore */ }
+        await get().pullServerSession()
       },
 
       creditRefBalance: (amount) => {
@@ -812,12 +828,14 @@ export const useStore = create<AppStore>()(
       syncAdminData: async () => {
         if (!api.isEnabled() || !get()._adminVerified) return
         try {
-          const [settingsRes, ordersRes, productsRes, logsRes, broadcastsRes] = await Promise.all([
+          const [settingsRes, ordersRes, productsRes, logsRes, broadcastsRes, usersRes, supportRes] = await Promise.all([
             api.adminGetSettings(),
             api.adminOrders(),
             api.adminGetProducts(),
             api.adminLogs(),
             api.adminBroadcasts(),
+            api.adminUsers(),
+            api.adminSupport(),
           ])
           const patch: Partial<AppStore> = {}
           if (settingsRes && typeof settingsRes === 'object') {
@@ -845,7 +863,23 @@ export const useStore = create<AppStore>()(
             Object.assign(patch, cfgPatch)
           }
           if (Array.isArray(ordersRes)) {
-            patch.orders = (ordersRes as Record<string, unknown>[]).map(mapServerOrder)
+            const mapped = (ordersRes as Record<string, unknown>[]).map(mapServerOrder)
+            patch.orders = mergeServerOrders(get().orders, mapped)
+          }
+          if (Array.isArray(usersRes)) {
+            const byUid: Record<number, { username: string; full_name: string }> = {}
+            for (const row of usersRes as { uid: number; username?: string; full_name?: string }[]) {
+              byUid[row.uid] = {
+                username: row.username ?? '',
+                full_name: row.full_name ?? '',
+              }
+            }
+            patch.adminUserByUid = byUid
+          }
+          if (supportRes && typeof supportRes === 'object') {
+            const sr = supportRes as { tickets?: SupportTicket[]; messages?: SupportMessage[] }
+            if (Array.isArray(sr.messages)) patch.supportMessages = sr.messages
+            if (Array.isArray(sr.tickets)) patch.supportTickets = sr.tickets
           }
           if (productsRes && typeof productsRes === 'object') {
             const pr = productsRes as { products?: Product[]; categories?: Category[]; pinned?: number[] }
@@ -1130,75 +1164,56 @@ export const useStore = create<AppStore>()(
       }),
     }),
     {
-      name: 'fanvue-app-v9',
+      name: 'fanvue-app-v10',
       version: 1,
       migrate: (state: unknown) => {
         const s = state as Partial<AppStore>
         if (s.user) {
-          s.user = { ...MOCK_USER, ...s.user }
+          s.user = {
+            ...MOCK_USER,
+            ...s.user,
+            balance: 0,
+            spent: 0,
+            purchases: 0,
+            ref_balance: 0,
+          }
         }
         s.orders = []
-        // ensure newly added crypto networks (e.g. ton) get default empty addresses
+        s.notifications = []
         s.cryptoAddresses = { ...CONFIG.addresses, ...(s.cryptoAddresses ?? {}) } as typeof s.cryptoAddresses
-        if (Array.isArray(s.products)) {
-          const defaultStocks = new Map(MOCK_PRODUCTS.map((p) => [p.id, p.stock]))
-          s.products = s.products.map((p) => {
-            if (p.delivery !== 'auto') return p
-            const defaultStock = defaultStocks.get(p.id)
-            const poolCount = p.autoItems?.length ?? 0
-            return defaultStock && p.stock === poolCount && defaultStock > p.stock
-              ? { ...p, stock: defaultStock }
-              : p
-          })
-        }
-        // ensure newly added siteLinks fields fall back to defaults
         if (s.siteLinks) {
           s.siteLinks = { ...defaultSiteLinks(), ...s.siteLinks }
-        }
-        if (s.orders) {
-          s.orders = s.orders.map((o) =>
-            o.kind === 'buy' && o.status === 'paid' && o.id.startsWith('2_')
-              ? { ...o, status: 'completed' as const }
-              : o
-          )
-        }
-        // dedupe stickHeroScores: keep best per player (case-insensitive)
-        if (Array.isArray(s.stickHeroScores)) {
-          const best = new Map<string, { name: string; score: number; ts: number }>()
-          for (const r of s.stickHeroScores) {
-            if (!r || typeof r.name !== 'string') continue
-            const name = r.name.trim()
-            if (!name) continue
-            const score = Math.max(0, Math.min(99999, Math.floor(Number(r.score) || 0)))
-            const key = name.toLowerCase()
-            const prev = best.get(key)
-            if (!prev || prev.score < score) {
-              best.set(key, { name, score, ts: Number(r.ts) || Date.now() })
-            }
-          }
-          s.stickHeroScores = [...best.values()].sort((a, b) => b.score - a.score).slice(0, 100)
         }
         return s
       },
       partialize: (s) => ({
-        user: s.user,
         lang: s.lang,
         langUserSet: s.langUserSet,
+        user: s.user
+          ? {
+              uid: s.user.uid,
+              username: s.user.username,
+              full_name: s.user.full_name,
+              photo_url: s.user.photo_url,
+              lang: s.user.lang,
+              balance: 0,
+              spent: 0,
+              purchases: 0,
+              ref_earned: 0,
+              ref_count: 0,
+              ref_balance: 0,
+              created: s.user.created,
+            }
+          : null,
         cryptoAddresses: s.cryptoAddresses,
         qrOverrides: s.qrOverrides,
         photos: s.photos,
-        notifications: s.notifications,
         siteContent: s.siteContent,
         siteLinks: s.siteLinks,
         refReward: s.refReward,
         refWithdrawals: s.refWithdrawals,
         refWithdrawNetworks: s.refWithdrawNetworks,
         refDailyLog: s.refDailyLog,
-        supportMessages: s.supportMessages,
-        supportTickets: s.supportTickets,
-        // Strip deliveryData (credentials) — NEVER persist to localStorage.
-        // In production the user fetches delivery info from the server.
-        orders: s.orders.map((o) => ({ ...o, deliveryData: undefined })),
         supportForwardedOrders: s.supportForwardedOrders,
         pinnedProductIds: s.pinnedProductIds,
         supportUnread: s.supportUnread,
