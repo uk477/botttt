@@ -3,6 +3,9 @@ import { ENV } from "./env.js";
 
 const ADMIN_SALT = "fanvue:admin:v1:";
 const TG_API = `https://api.telegram.org/bot${ENV.botToken}`;
+const NOTIFY_API = ENV.notifyBotToken
+  ? `https://api.telegram.org/bot${ENV.notifyBotToken}`
+  : TG_API;
 
 // ── Telegram initData HMAC-SHA256 verification ──────────────────────
 // See https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
@@ -163,11 +166,51 @@ export async function answerCallbackQuery(
   }
 }
 
+async function notifySend(
+  chatId: number | string,
+  text: string,
+  parseMode: "HTML" | "Markdown" = "HTML",
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${NOTIFY_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode }),
+    });
+    const data = (await res.json()) as { ok: boolean; description?: string };
+    if (!data.ok) console.error(`[notify] failed → chat_id=${chatId} :: ${data.description}`);
+    return data.ok;
+  } catch (e) {
+    console.error("[notify] error:", e);
+    return false;
+  }
+}
+
+async function notifySendKeyboard(
+  chatId: number | string,
+  text: string,
+  replyMarkup: unknown,
+  parseMode: "HTML" | "Markdown" = "HTML",
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${NOTIFY_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode, reply_markup: replyMarkup }),
+    });
+    const data = (await res.json()) as { ok: boolean };
+    return data.ok;
+  } catch (e) {
+    console.error("[notify] keyboard error:", e);
+    return false;
+  }
+}
+
 export async function notifyAdmin(text: string): Promise<boolean> {
-  console.log(`[telegram] notifyAdmin → chat_id=${ENV.adminChatId}`);
-  const ok = await sendMessage(ENV.adminChatId, text);
+  console.log(`[notify] admin → chat_id=${ENV.adminChatId}`);
+  const ok = await notifySend(ENV.adminChatId, text);
   if (ENV.notifyGroupId) {
-    sendMessage(ENV.notifyGroupId, text).catch(() => {});
+    notifySend(ENV.notifyGroupId, text).catch(() => {});
   }
   return ok;
 }
@@ -176,7 +219,7 @@ export async function notifyUser(
   chatId: number,
   text: string,
 ): Promise<boolean> {
-  return sendMessage(chatId, text);
+  return notifySend(chatId, text);
 }
 
 export async function notifyUserWithButton(
@@ -185,9 +228,8 @@ export async function notifyUserWithButton(
   buttonText = "Открыть приложение",
 ): Promise<boolean> {
   const url = ENV.webAppUrl;
-  if (!url) return sendMessage(chatId, text);
-  const { ok } = await sendMessageWithKeyboard(chatId, text, {
+  if (!url) return notifySend(chatId, text);
+  return notifySendKeyboard(chatId, text, {
     inline_keyboard: [[{ text: buttonText, web_app: { url } }]],
   });
-  return ok;
 }

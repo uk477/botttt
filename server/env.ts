@@ -13,6 +13,7 @@ function opt(key: string, fallback = ""): string {
 export const ENV = {
   port: Number(opt("PORT", "3000")),
   botToken: req("BOT_TOKEN"),
+  notifyBotToken: opt("NOTIFY_BOT_TOKEN"),
   adminChatId: req("ADMIN_CHAT_ID"),
   notifyGroupId: opt("NOTIFY_GROUP_ID"),
   webAppUrl: opt("WEBAPP_URL") || opt("VITE_SITE_URL"),
