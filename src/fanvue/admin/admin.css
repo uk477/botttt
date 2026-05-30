@@ -475,7 +475,47 @@
   color: #0a0f0c;
 }
 
-/* ── Broadcast (simple editor) ── */
+/* ── Broadcast: one button ── */
+.adm-bcast-one {
+  padding-top: 14px;
+  border-top: 1px solid var(--adm-border);
+}
+
+.adm-bcast-one-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.adm-bcast-one-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--adm-accent);
+}
+
+.adm-bcast-one-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adm-bcast-one-field > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--adm-muted);
+}
+
+.adm-bcast-one-input {
+  font-size: 15px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Legacy broadcast styles */
 .adm-bcast-simple {
   margin-top: 16px;
   padding-top: 16px;

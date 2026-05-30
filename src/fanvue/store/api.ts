@@ -74,7 +74,11 @@ export type BroadcastApiResult = {
 }
 
 async function postBroadcast(
-  body: { text: string; keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput },
+  body: {
+    text: string
+    buttonText?: string
+    keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
+  },
 ): Promise<BroadcastApiResult> {
   if (!base) return { ok: false, error: 'API disabled' }
   try {

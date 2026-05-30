@@ -2,29 +2,29 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { AdminConfirmSheet } from './ui'
-import AdminBroadcastKeyboard, {
-  defaultKeyboardRows,
-  keyboardFromRows,
-  type BroadcastBtn,
-} from './AdminBroadcastKeyboard'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
 import { api } from '../store/api'
-import { keyboardSummary } from '../../../shared/broadcastKeyboard'
-import type { BroadcastKeyboardInput } from '../../../shared/broadcastKeyboard'
+import { simpleButtonSummary } from '../../../shared/broadcastKeyboard'
 
-function mapBroadcastHistory(
-  rows: { id: number; text: string; sent_to: number; ts: string; keyboard?: BroadcastKeyboardInput; status?: string }[],
-) {
+const DEFAULT_BTN_RU = 'Открыть приложение'
+const DEFAULT_BTN_EN = 'Open app'
+
+type HistoryRow = {
+  id: number
+  text: string
+  sent_to: number
+  ts: string
+  status?: string
+  buttonText?: string
+}
+
+function parseHistory(rows: HistoryRow[]): HistoryRow[] {
   return rows.map((b) => ({
-    id: b.id,
-    text: b.text,
-    sent_to: b.sent_to,
-    ts: b.ts,
-    keyboard: b.keyboard,
-    status: b.status,
+    ...b,
+    buttonText: b.buttonText || undefined,
   }))
 }
 
@@ -36,71 +36,55 @@ export default function AdminBroadcast() {
   const toast = useToast()
   const { haptic } = useTelegram()
   const [text, setText] = useState('')
-  const [buttonsEnabled, setButtonsEnabled] = useState(true)
-  const [rows, setRows] = useState<BroadcastBtn[][]>(() => defaultKeyboardRows())
+  const [withButton, setWithButton] = useState(true)
+  const [buttonText, setButtonText] = useState(lang === 'ru' ? DEFAULT_BTN_RU : DEFAULT_BTN_EN)
   const [showConfirm, setShowConfirm] = useState(false)
   const [sending, setSending] = useState(false)
 
   const loadHistory = useCallback(async () => {
     if (!api.isEnabled()) return
     const res = await api.adminBroadcasts()
-    if (Array.isArray(res) && res.length > 0) {
-      useStore.setState({ broadcasts: mapBroadcastHistory(res) })
+    if (Array.isArray(res)) {
+      useStore.setState({
+        broadcasts: parseHistory(res as HistoryRow[]) as typeof broadcasts,
+      })
     }
   }, [])
 
   useEffect(() => {
     void loadHistory()
-    const id = window.setInterval(() => void loadHistory(), 4000)
+    const id = window.setInterval(() => void loadHistory(), 5000)
     return () => window.clearInterval(id)
   }, [loadHistory])
 
-  const keyboardPayload = (): BroadcastKeyboardInput =>
-    keyboardFromRows(rows, buttonsEnabled)
+  const payloadButtonText = () => (withButton ? buttonText.trim() : '')
 
   const handleSend = () => {
     if (!text.trim()) return
-    const kb = keyboardPayload()
-    if (kb.enabled && kb.rows.length === 0) {
-      toast.show(
-        lang === 'ru' ? 'Введите текст кнопки или отключите кнопки' : 'Enter button text or disable buttons',
-        'error',
-      )
+    if (withButton && !buttonText.trim()) {
+      toast.show(lang === 'ru' ? 'Введите текст кнопки' : 'Enter button text', 'error')
       return
-    }
-    if (kb.enabled) {
-      for (const row of kb.rows) {
-        for (const b of row) {
-          if (b.type === 'url' && !b.url?.trim()) {
-            toast.show(
-              lang === 'ru' ? 'Укажите ссылку для кнопки «Ссылка»' : 'Set URL for link buttons',
-              'error',
-            )
-            return
-          }
-        }
-      }
     }
     setShowConfirm(true)
   }
 
   const doSend = async () => {
     const trimmed = text.trim()
-    const keyboard = keyboardPayload()
+    const btn = payloadButtonText()
     setSending(true)
     setShowConfirm(false)
     try {
       if (!api.isEnabled()) {
-        toast.show(lang === 'ru' ? 'Нет API (VITE_API_URL)' : 'No API (VITE_API_URL)', 'error')
+        toast.show(lang === 'ru' ? 'Нет API — проверь VITE_API_URL при сборке' : 'No API — check VITE_API_URL at build', 'error')
         return
       }
 
-      const res = await api.adminBroadcast({ text: trimmed, keyboard })
+      const res = await api.adminBroadcast({ text: trimmed, buttonText: btn })
       if (!res?.ok) {
         haptic('error')
         toast.show(
           res?.error
-            ? (lang === 'ru' ? `Ошибка: ${res.error}` : `Error: ${res.error}`)
+            ? (lang === 'ru' ? res.error : res.error)
             : (lang === 'ru' ? 'Рассылка не удалась' : 'Broadcast failed'),
           'error',
         )
@@ -108,21 +92,22 @@ export default function AdminBroadcast() {
       }
 
       haptic('success')
-      if (res.status === 'running' && res.total) {
+      const total = res.total ?? 0
+      if (res.status === 'running') {
         toast.show(
           lang === 'ru'
-            ? `Рассылка запущена: ${res.total} получателей`
-            : `Broadcast started: ${res.total} recipients`,
+            ? `Отправка… ${total} чел. (смотри историю)`
+            : `Sending… ${total} users (see history)`,
           'success',
         )
       } else {
-        toast.show(
-          `${t('admin_broadcast_sent')}: ${res.sent_to}${res.failed ? ` (${res.failed} ${lang === 'ru' ? 'ошибок' : 'failed'})` : ''}`,
-          'success',
-        )
+        toast.show(`${t('admin_broadcast_sent')}: ${res.sent_to ?? 0}`, 'success')
       }
 
-      addBroadcast(trimmed, res.sent_to ?? 0, keyboard)
+      addBroadcast(trimmed, res.sent_to ?? 0, {
+        enabled: !!btn,
+        rows: btn ? [[{ text: btn, type: 'web_app' as const, url: '' }]] : [],
+      })
       setText('')
       void loadHistory()
     } finally {
@@ -130,91 +115,111 @@ export default function AdminBroadcast() {
     }
   }
 
-  const confirmExtra =
+  const confirmMsg =
     lang === 'ru'
-      ? `Кнопки: ${keyboardSummary(keyboardPayload(), 'ru')}`
-      : `Buttons: ${keyboardSummary(keyboardPayload(), 'en')}`
+      ? `${text.slice(0, 100)}${text.length > 100 ? '…' : ''}\n\n${simpleButtonSummary(payloadButtonText(), 'ru')}`
+      : `${text.slice(0, 100)}${text.length > 100 ? '…' : ''}\n\n${simpleButtonSummary(payloadButtonText(), 'en')}`
 
   return (
     <PageTransition>
       <div className="adm-page">
         <div className="adm-card" style={{ marginBottom: 16 }}>
-          <div className="adm-section-label" style={{ marginBottom: 8 }}>{t('admin_broadcast_text')}</div>
-          <p className="t-xs t-muted" style={{ marginBottom: 12, lineHeight: 1.45 }}>
-            {lang === 'ru'
-              ? 'Сообщение уйдёт всем, кто хоть раз открывал магазин.'
-              : 'Sent to everyone who opened the shop at least once.'}
-          </p>
+          <div className="adm-section-label">{t('admin_broadcast_text')}</div>
           <textarea
             className="adm-input"
-            rows={5}
+            rows={6}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={lang === 'ru' ? 'Текст рассылки…' : 'Broadcast text…'}
-            style={{ resize: 'vertical', minHeight: 110 }}
+            placeholder={lang === 'ru' ? 'Текст для всех пользователей…' : 'Message for all users…'}
+            style={{ resize: 'vertical', minHeight: 120, marginTop: 10 }}
           />
           <div className="t-xs t-muted mt-2">{text.length} / 4096</div>
 
-          <AdminBroadcastKeyboard
-            lang={lang}
-            enabled={buttonsEnabled}
-            onEnabledChange={setButtonsEnabled}
-            rows={rows}
-            onRowsChange={setRows}
-          />
+          <div className="adm-bcast-one" style={{ marginTop: 18 }}>
+            <label className="adm-bcast-one-toggle">
+              <input
+                type="checkbox"
+                checked={withButton}
+                onChange={(e) => setWithButton(e.target.checked)}
+              />
+              <span>{lang === 'ru' ? 'Кнопка под сообщением' : 'Button under message'}</span>
+            </label>
+
+            {withButton && (
+              <label className="adm-bcast-one-field">
+                <span>{lang === 'ru' ? 'Текст на кнопке' : 'Button label'}</span>
+                <input
+                  className="adm-input adm-bcast-one-input"
+                  value={buttonText}
+                  maxLength={64}
+                  onChange={(e) => setButtonText(e.target.value)}
+                  placeholder={lang === 'ru' ? DEFAULT_BTN_RU : DEFAULT_BTN_EN}
+                />
+                <span className="t-xs t-muted">
+                  {lang === 'ru'
+                    ? 'Откроет мини-приложение (URL с сервера WEBAPP_URL).'
+                    : 'Opens the mini-app (WEBAPP_URL from server).'}
+                </span>
+              </label>
+            )}
+          </div>
 
           <button
             type="button"
             className="adm-btn adm-btn--primary"
-            style={{ marginTop: 16, width: '100%' }}
+            style={{ marginTop: 20, width: '100%' }}
             onClick={handleSend}
             disabled={!text.trim() || sending}
           >
-            {sending ? (lang === 'ru' ? 'Запуск…' : 'Starting…') : t('admin_broadcast_send')}
+            {sending ? (lang === 'ru' ? 'Отправка…' : 'Sending…') : t('admin_broadcast_send')}
           </button>
         </div>
 
         <div className="adm-section-label">{t('admin_broadcast_history')}</div>
         {broadcasts.length === 0 ? (
           <div className="adm-empty" style={{ marginTop: 12 }}>
-            {lang === 'ru' ? 'История пуста' : 'History is empty'}
+            {lang === 'ru' ? 'История пуста' : 'No history yet'}
           </div>
         ) : (
           <div style={{ marginTop: 8 }}>
-            {broadcasts.map((b, i) => (
-              <motion.div
-                key={b.id}
-                className="adm-card"
-                style={{ marginBottom: 8 }}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-              >
-                <div className="row-between mb-2">
-                  <div className="t-xs t-muted">{new Date(b.ts).toLocaleString()}</div>
-                  <div className="row gap-2">
-                    {(b as { status?: string }).status === 'running' && (
-                      <span className="adm-badge adm-badge--warn">
-                        {lang === 'ru' ? 'отправка…' : 'sending…'}
-                      </span>
-                    )}
-                    {b.keyboard && (
-                      <span className="adm-badge">{keyboardSummary(b.keyboard, lang)}</span>
-                    )}
-                    <span className="adm-badge adm-badge--ok">→ {b.sent_to}</span>
+            {broadcasts.map((b, i) => {
+              const row = b as HistoryRow
+              const btn =
+                row.buttonText ??
+                (b.keyboard?.enabled ? b.keyboard.rows[0]?.[0]?.text : '')
+              return (
+                <motion.div
+                  key={b.id}
+                  className="adm-card"
+                  style={{ marginBottom: 8 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                >
+                  <div className="row-between mb-2">
+                    <span className="t-xs t-muted">{new Date(b.ts).toLocaleString()}</span>
+                    <div className="row gap-2">
+                      {row.status === 'running' && (
+                        <span className="adm-badge adm-badge--warn">
+                          {lang === 'ru' ? 'идёт…' : 'running…'}
+                        </span>
+                      )}
+                      <span className="adm-badge">{simpleButtonSummary(btn, lang)}</span>
+                      <span className="adm-badge adm-badge--ok">{row.sent_to ?? b.sent_to}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="t-sm" style={{ lineHeight: 1.5 }}>{b.text}</div>
-              </motion.div>
-            ))}
+                  <div className="t-sm" style={{ lineHeight: 1.5 }}>{b.text}</div>
+                </motion.div>
+              )
+            })}
           </div>
         )}
       </div>
 
       <AdminConfirmSheet
         open={showConfirm}
-        title={lang === 'ru' ? 'Отправить рассылку?' : 'Send broadcast?'}
-        message={`${text.slice(0, 120)}${text.length > 120 ? '…' : ''}\n\n${confirmExtra}`}
+        title={lang === 'ru' ? 'Отправить всем?' : 'Send to everyone?'}
+        message={confirmMsg}
         confirmLabel={lang === 'ru' ? 'Отправить' : 'Send'}
         cancelLabel={lang === 'ru' ? 'Отмена' : 'Cancel'}
         onConfirm={doSend}

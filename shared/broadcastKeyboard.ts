@@ -118,3 +118,21 @@ export function keyboardSummary(keyboard: BroadcastKeyboardInput | undefined, la
   if (!n) return lang === 'ru' ? 'без кнопок' : 'no buttons'
   return lang === 'ru' ? `${n} кноп.` : `${n} btn.`
 }
+
+/** One full-width Telegram button (mini-app). */
+export function buildSimpleButtonMarkup(
+  buttonText: string,
+  webAppUrl: string,
+): { inline_keyboard: Record<string, unknown>[][] } | undefined {
+  const text = buttonText.trim().slice(0, TEXT_MAX)
+  if (!text) return undefined
+  const url = (webAppUrl ?? '').trim()
+  if (!url) return undefined
+  return { inline_keyboard: [[{ text, web_app: { url } }]] }
+}
+
+export function simpleButtonSummary(buttonText: string | undefined, lang: 'ru' | 'en'): string {
+  const t = (buttonText ?? '').trim()
+  if (!t) return lang === 'ru' ? 'без кнопки' : 'no button'
+  return lang === 'ru' ? `кнопка: ${t}` : `button: ${t}`
+}

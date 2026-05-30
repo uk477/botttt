@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin, notifyUserTemplated, notifyUserBroadcast } from "../telegram.js";
 import {
   buildBroadcastReplyMarkup,
+  buildSimpleButtonMarkup,
   validateBroadcastKeyboard,
   type BroadcastKeyboardInput,
 } from "../../shared/broadcastKeyboard.js";
@@ -270,20 +271,42 @@ const broadcastLimiter = rateLimit({ windowMs: 60_000, max: 5 });
 
 router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  const { text, keyboard } = req.body as { text?: string; keyboard?: unknown };
+  const { text, buttonText, keyboard } = req.body as {
+    text?: string;
+    buttonText?: string;
+    keyboard?: unknown;
+  };
   if (!text || typeof text !== "string" || text.length > 4096) {
     res.status(400).json({ error: "Invalid text" }); return;
   }
 
-  const kbCheck = validateBroadcastKeyboard(keyboard);
-  if (!kbCheck.ok) {
-    res.status(400).json({ error: kbCheck.error }); return;
+  let replyMarkup: ReturnType<typeof buildSimpleButtonMarkup> = undefined;
+  let meta: Record<string, unknown> = { enabled: false };
+
+  if (typeof buttonText === "string") {
+    const label = buttonText.trim().slice(0, 64);
+    if (label) {
+      replyMarkup = buildSimpleButtonMarkup(label, ENV.webAppUrl);
+      if (!replyMarkup && !ENV.webAppUrl) {
+        res.status(400).json({
+          error: "WEBAPP_URL is not set on server — cannot add app button",
+        });
+        return;
+      }
+      meta = { enabled: true, buttonText: label };
+    }
+  } else {
+    const kbCheck = validateBroadcastKeyboard(keyboard);
+    if (!kbCheck.ok) {
+      res.status(400).json({ error: kbCheck.error }); return;
+    }
+    const kb: BroadcastKeyboardInput = kbCheck.value;
+    replyMarkup = buildBroadcastReplyMarkup(kb, ENV.webAppUrl);
+    meta = kb;
   }
-  const kb: BroadcastKeyboardInput = kbCheck.value;
-  const replyMarkup = buildBroadcastReplyMarkup(kb, ENV.webAppUrl);
 
   const userRows = allUsers.getAll();
-  const keyboardJson = JSON.stringify(kb);
+  const keyboardJson = JSON.stringify(meta);
   const broadcastId = broadcasts.create({
     text,
     sent_to: 0,
@@ -318,14 +341,37 @@ router.get("/api/admin/broadcasts", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   const rows = broadcasts.getAll();
   res.json(
-    rows.map((b) => ({
-      id: b.id,
-      text: b.text,
-      sent_to: b.sent_to,
-      ts: b.created_at,
-      status: b.status,
-      keyboard: b.keyboard_json ? safeParseKeyboard(b.keyboard_json) : undefined,
-    })),
+    rows.map((b) => {
+      let buttonText: string | undefined;
+      let keyboard: BroadcastKeyboardInput | undefined;
+      if (b.keyboard_json) {
+        try {
+          const meta = JSON.parse(b.keyboard_json) as {
+            buttonText?: string;
+            enabled?: boolean;
+            rows?: unknown;
+          };
+          if (typeof meta.buttonText === "string") {
+            buttonText = meta.buttonText;
+          } else {
+            const parsed = safeParseKeyboard(b.keyboard_json);
+            keyboard = parsed;
+            buttonText = parsed?.rows[0]?.[0]?.text;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return {
+        id: b.id,
+        text: b.text,
+        sent_to: b.sent_to,
+        ts: b.created_at,
+        status: b.status,
+        buttonText,
+        keyboard,
+      };
+    }),
   );
 });
 
