@@ -7341,6 +7341,244 @@ body.fv-game-open .fv-nav { display: none !important; }
   margin: 4px auto 14px;
 }
 
+/* Sales history calendar sheet */
+.sheet.sales-cal-sheet {
+  max-height: 88dvh;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+}
+
+.sales-cal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sales-cal-head-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t-muted);
+  margin-bottom: 2px;
+}
+
+.sales-cal-head-title {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.sales-cal-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--b-default);
+  background: var(--surface-2);
+  color: var(--t-muted);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.sales-cal-month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sales-cal-month-title {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sales-cal-month-title span {
+  color: var(--t-muted);
+  font-weight: 600;
+}
+
+.sales-cal-nav {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--b-default);
+  background: var(--surface-2);
+  color: var(--t-primary);
+  display: grid;
+  place-items: center;
+}
+
+.sales-cal-nav:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.sales-cal-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.sales-cal-week span {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--t-muted);
+  padding: 2px 0;
+}
+
+.sales-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.sales-cal-day {
+  position: relative;
+  height: 36px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--t-primary);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+}
+
+.sales-cal-day:disabled {
+  color: var(--t-muted);
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sales-cal-day.is-today {
+  background: var(--surface-2);
+}
+
+.sales-cal-day.is-selected {
+  border-color: rgba(57, 255, 99, 0.55);
+  background: rgba(57, 255, 99, 0.1);
+  font-weight: 800;
+}
+
+.sales-cal-day-count {
+  font-size: 8px;
+  font-weight: 800;
+  color: var(--brand);
+  line-height: 1;
+}
+
+.sales-cal-daypanel {
+  border-top: 1px solid var(--b-default);
+  padding-top: 12px;
+}
+
+.sales-cal-daynav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sales-cal-daylabel {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sales-cal-daylabel span {
+  color: var(--t-muted);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.sales-cal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sales-cal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--b-default);
+}
+
+.sales-cal-row img {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  object-fit: cover;
+}
+
+.sales-cal-row-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.sales-cal-row-meta strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sales-cal-row-meta span {
+  display: block;
+  font-size: 11px;
+  color: var(--t-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sales-cal-row-time {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t-muted);
+  flex-shrink: 0;
+}
+
+.sales-cal-empty {
+  text-align: center;
+  padding: 16px 8px;
+  font-size: 12px;
+  color: var(--t-muted);
+}
+
+.sales-cal-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(57, 255, 99, 0.06);
+  border: 1px solid rgba(57, 255, 99, 0.12);
+}
+
+.sales-cal-total span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-muted);
+}
+
+.sales-cal-total span:last-child {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--brand);
+}
+
 /* ═══════════════════════════════════════════════════
    ADMIN v2 — modern glass / aurora / motion
    ═══════════════════════════════════════════════════ */

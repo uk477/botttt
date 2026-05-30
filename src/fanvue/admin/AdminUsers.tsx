@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
 import SearchBar from '../components/SearchBar'
 import { api } from '../store/api'
+import { AdminEmpty, AdminSheet, AdminCard } from './ui'
 
 interface UserRow {
   uid: number
@@ -137,26 +138,19 @@ export default function AdminUsers() {
 
   return (
     <PageTransition>
-      <div className="page adm2-page">
-        <div className="adm2-hero">
-          <div>
-            <div className="adm2-hero-eyebrow">{lang === 'ru' ? 'Сообщество' : 'Community'}</div>
-            <div className="adm2-hero-title">
-              {lang === 'ru' ? 'Пользо' : 'Users '}<span>{lang === 'ru' ? 'ватели' : 'list'}</span>
-            </div>
-            <div className="adm2-hero-sub">
-              {loading ? (lang === 'ru' ? 'Загрузка…' : 'Loading…') : (
-                <>
-                  {filtered.length} {lang === 'ru' ? 'всего · ' : 'total · '}
-                  {filtered.filter((u) => u.purchases > 0).length} {lang === 'ru' ? 'активных' : 'active'}
-                </>
-              )}
-            </div>
-          </div>
-          <motion.button
-            className="adm2-iconbtn"
-            style={{ width: 'auto', padding: '0 12px', fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', gap: 6, color: '#39ff63' }}
-            whileTap={{ scale: 0.95 }}
+      <div className="adm-page">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--adm-muted)' }}>
+            {loading ? (lang === 'ru' ? 'Загрузка…' : 'Loading…') : (
+              <>
+                {filtered.length} {lang === 'ru' ? 'всего' : 'total'} ·{' '}
+                {filtered.filter((u) => u.purchases > 0).length} {lang === 'ru' ? 'с покупками' : 'buyers'}
+              </>
+            )}
+          </p>
+          <button
+            type="button"
+            className="adm-btn adm-btn--primary"
             onClick={() => {
               const header = 'UID,Username,Name,Balance,Spent,Purchases,Ref Earned,Ref Count\n'
               const rows = filtered.map((u) =>
@@ -168,8 +162,8 @@ export default function AdminUsers() {
               toast.show(lang === 'ru' ? `Экспорт: ${filtered.length}` : `Exported ${filtered.length}`, 'success')
             }}
           >
-            ↓ CSV
-          </motion.button>
+            CSV
+          </button>
         </div>
 
         <div className="mb-3">
@@ -177,17 +171,17 @@ export default function AdminUsers() {
         </div>
 
         {filtered.length === 0 && !loading && (
-          <div className="text-center t-muted" style={{ padding: 40 }}>
-            {lang === 'ru' ? 'Пока нет пользователей. Они появятся после первого входа в мини-апп.' : 'No users yet. They appear after opening the mini app.'}
-          </div>
+          <AdminEmpty>
+            {lang === 'ru' ? 'Пользователи появятся после первого входа в мини-апп.' : 'Users appear after opening the mini app.'}
+          </AdminEmpty>
         )}
 
         <div className="col gap-3">
           {filtered.map((u, i) => (
             <motion.div
               key={u.uid}
-              className="adm2-att-row"
-              style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', borderColor: u.isReal ? 'rgba(57,255,99,0.35)' : undefined }}
+              className="adm-menu-item"
+              style={u.isReal ? { borderColor: 'rgba(61, 220, 132, 0.35)' } : undefined}
               onClick={() => { setSelected(u); setBalAmt(''); setRefAmt('') }}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -196,24 +190,24 @@ export default function AdminUsers() {
             >
               <div style={{
                 width: 40, height: 40, borderRadius: '50%',
-                background: u.isReal ? 'linear-gradient(135deg, #39ff63, #22e84f)' : 'rgba(255,255,255,0.04)',
-                border: u.isReal ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                color: u.isReal ? '#051006' : 'var(--t-primary)',
+                background: u.isReal ? 'var(--adm-accent)' : 'var(--adm-surface-2)',
+                border: u.isReal ? 'none' : '1px solid var(--adm-border)',
+                color: u.isReal ? '#0a0f0c' : 'var(--adm-text)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 14, fontWeight: 800, flexShrink: 0,
-                boxShadow: u.isReal ? '0 4px 14px rgba(57,255,99,0.35)' : 'none',
+                boxShadow: u.isReal ? 'none' : 'none',
               }}>
                 {initials(u.full_name || u.username || '?')}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="t-sm fw-bold" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {u.full_name || u.username || `UID ${u.uid}`}
-                  {u.isReal && <span style={{ fontSize: 9, fontWeight: 900, background: 'linear-gradient(135deg, #39ff63, #22e84f)', color: '#051006', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.06em' }}>YOU</span>}
+                  {u.isReal && <span className="adm-menu-badge" style={{ fontSize: 9 }}>YOU</span>}
                 </div>
                 <div className="t-xs t-muted">@{u.username || '—'} · {u.uid}</div>
               </div>
               <div className="col" style={{ alignItems: 'flex-end', gap: 2 }}>
-                <div className="t-sm fw-black" style={{ color: '#39ff63' }}>${u.balance.toFixed(0)}</div>
+                <div className="t-sm fw-black" style={{ color: 'var(--adm-accent)' }}>${u.balance.toFixed(0)}</div>
                 {u.ref_balance > 0 && (
                   <div className="t-xs fw-bold" style={{ color: '#94c592' }}>
                     ref: ${u.ref_balance.toFixed(0)}
@@ -226,142 +220,76 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      <AnimatePresence>
+      <AdminSheet
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={selected?.full_name || selected?.username || 'User'}
+      >
         {selected && (
-          <motion.div
-            className="modal-overlay"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={(e) => { if (e.target === e.currentTarget) setSelected(null) }}
-          >
-            <motion.div
-              className="sheet"
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-              style={{ maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
-            >
-              <motion.div
-                className="sheet-handle"
-                style={{ cursor: 'grab', touchAction: 'none' }}
-                drag="y"
-                dragConstraints={{ top: 0 }}
-                dragElastic={{ top: 0, bottom: 0.3 }}
-                onDragEnd={(_, info) => { if (info.offset.y > 80) setSelected(null) }}
-              />
-
-              <div className="row gap-3 mb-4">
-                <div style={{
-                  width: 52, height: 52, borderRadius: '50%',
-                  background: selected.isReal ? 'var(--g-brand)' : 'var(--surface-2)',
-                  border: selected.isReal ? 'none' : '1.5px solid var(--b-default)',
-                  color: selected.isReal ? 'white' : 'var(--t-primary)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 18, fontWeight: 900, flexShrink: 0,
-                }}>
-                  {initials(selected.full_name || selected.username || '?')}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div className="t-lg fw-black">{selected.full_name || selected.username}</div>
-                  <div className="t-xs t-muted">@{selected.username || '—'}</div>
-                  <div className="t-xs t-muted">UID: {selected.uid}</div>
-                </div>
-                <motion.button onClick={() => setSelected(null)} whileTap={{ scale: 0.9 }} style={{ color: 'var(--t-muted)', fontSize: 22, lineHeight: 1, alignSelf: 'flex-start' }}>×</motion.button>
+          <>
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--adm-muted)' }}>
+              @{selected.username || '—'} · UID {selected.uid}
+            </p>
+            <div className="adm-mini-stats">
+              <div className="adm-mini-stat">
+                <div className="adm-mini-stat-value">${selected.balance.toFixed(2)}</div>
+                <div className="adm-mini-stat-label">{lang === 'ru' ? 'Баланс' : 'Balance'}</div>
               </div>
-
-              <div className="grid-2 gap-3 mb-4">
-                <div className="stat-card">
-                  <div className="stat-value t-gold">${selected.balance.toFixed(2)}</div>
-                  <div className="stat-label">{lang === 'ru' ? 'Баланс' : 'Balance'}</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value t-brand">${selected.ref_balance.toFixed(2)}</div>
-                  <div className="stat-label">{lang === 'ru' ? 'Реф. баланс' : 'Ref balance'}</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value t-purple">{selected.purchases}</div>
-                  <div className="stat-label">{lang === 'ru' ? 'Покупок' : 'Purchases'}</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value" style={{ color: 'var(--cyan)' }}>{selected.ref_count}</div>
-                  <div className="stat-label">{lang === 'ru' ? 'Рефералов' : 'Referrals'}</div>
-                </div>
+              <div className="adm-mini-stat">
+                <div className="adm-mini-stat-value">${selected.ref_balance.toFixed(2)}</div>
+                <div className="adm-mini-stat-label">{lang === 'ru' ? 'Реф. баланс' : 'Ref balance'}</div>
               </div>
-
-              <div className="card mb-3" style={{ padding: '4px 0' }}>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Потрачено' : 'Spent'}</span>
-                  <span className="t-sm fw-black">${selected.spent.toFixed(2)}</span>
-                </div>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Реф. заработано' : 'Ref earned'}</span>
-                  <span className="t-sm fw-black t-brand">${selected.ref_earned.toFixed(2)}</span>
-                </div>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Последняя активность' : 'Last seen'}</span>
-                  <span className="t-xs">{fmtDate(selected.last_seen)}</span>
-                </div>
+              <div className="adm-mini-stat">
+                <div className="adm-mini-stat-value">{selected.purchases}</div>
+                <div className="adm-mini-stat-label">{lang === 'ru' ? 'Покупок' : 'Purchases'}</div>
               </div>
-
-              <div className="card mb-3" style={{ padding: '14px 16px' }}>
-                <div className="t-sm fw-bold mb-2">
-                  💰 {lang === 'ru' ? 'Зачислить основной баланс' : 'Credit main balance'}
+              <div className="adm-mini-stat">
+                <div className="adm-mini-stat-value">{selected.ref_count}</div>
+                <div className="adm-mini-stat-label">{lang === 'ru' ? 'Рефералов' : 'Referrals'}</div>
+              </div>
+            </div>
+            <div className="adm-meta" style={{ marginBottom: 12 }}>
+              <div className="adm-meta-row">
+                <span className="adm-meta-label">{lang === 'ru' ? 'Потрачено' : 'Spent'}</span>
+                <span className="adm-meta-value">${selected.spent.toFixed(2)}</span>
+              </div>
+              <div className="adm-meta-row">
+                <span className="adm-meta-label">{lang === 'ru' ? 'Реф. заработано' : 'Ref earned'}</span>
+                <span className="adm-meta-value">${selected.ref_earned.toFixed(2)}</span>
+              </div>
+              <div className="adm-meta-row">
+                <span className="adm-meta-label">{lang === 'ru' ? 'Активность' : 'Last seen'}</span>
+                <span className="adm-meta-value">{fmtDate(selected.last_seen)}</span>
+              </div>
+            </div>
+            <AdminCard style={{ marginBottom: 12 }}>
+              <div className="adm-section-label" style={{ marginBottom: 8 }}>
+                {lang === 'ru' ? 'Основной баланс' : 'Main balance'}
+              </div>
+              <div className="row gap-2">
+                <input className="adm-input" type="number" inputMode="decimal" placeholder="$0.00" value={balAmt} onChange={(e) => setBalAmt(e.target.value)} style={{ flex: 1 }} />
+                <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" disabled={!balAmt || parseFloat(balAmt) <= 0} onClick={handleCreditBalance}>
+                  {lang === 'ru' ? 'Зачислить' : 'Credit'}
+                </button>
+              </div>
+            </AdminCard>
+            {selected.isReal && (
+              <AdminCard style={{ marginBottom: 12 }}>
+                <div className="adm-section-label" style={{ marginBottom: 8 }}>
+                  {lang === 'ru' ? 'Реф. баланс' : 'Ref balance'}
                 </div>
                 <div className="row gap-2">
-                  <input
-                    className="input"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="$0.00"
-                    value={balAmt}
-                    onChange={(e) => setBalAmt(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <motion.button
-                    className="btn btn-primary btn-sm"
-                    style={{ flexShrink: 0 }}
-                    disabled={!balAmt || parseFloat(balAmt) <= 0}
-                    onClick={handleCreditBalance}
-                    whileTap={{ scale: 0.95 }}
-                  >
+                  <input className="adm-input" type="number" inputMode="decimal" placeholder="$0.00" value={refAmt} onChange={(e) => setRefAmt(e.target.value)} style={{ flex: 1 }} />
+                  <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" disabled={!refAmt || parseFloat(refAmt) <= 0} onClick={handleCreditRef}>
                     {lang === 'ru' ? 'Зачислить' : 'Credit'}
-                  </motion.button>
+                  </button>
                 </div>
-              </div>
-
-              {selected.isReal && (
-                <div className="card mb-4" style={{ padding: '14px 16px' }}>
-                  <div className="t-sm fw-bold mb-2">
-                    🎁 {lang === 'ru' ? 'Зачислить реф. баланс' : 'Credit ref balance'}
-                  </div>
-                  <div className="row gap-2">
-                    <input
-                      className="input"
-                      type="number"
-                      inputMode="decimal"
-                      placeholder="$0.00"
-                      value={refAmt}
-                      onChange={(e) => setRefAmt(e.target.value)}
-                      style={{ flex: 1 }}
-                    />
-                    <motion.button
-                      className="btn btn-primary btn-sm"
-                      style={{ flexShrink: 0, background: 'var(--g-success)' }}
-                      disabled={!refAmt || parseFloat(refAmt) <= 0}
-                      onClick={handleCreditRef}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      {lang === 'ru' ? 'Зачислить' : 'Credit'}
-                    </motion.button>
-                  </div>
-                </div>
-              )}
-
-              <motion.button className="btn btn-secondary" onClick={() => setSelected(null)} whileTap={{ scale: 0.97 }}>
-                {t('close')}
-              </motion.button>
-            </motion.div>
-          </motion.div>
+              </AdminCard>
+            )}
+            <button type="button" className="adm-btn adm-btn--block" onClick={() => setSelected(null)}>{t('close')}</button>
+          </>
         )}
-      </AnimatePresence>
+      </AdminSheet>
     </PageTransition>
   )
 }

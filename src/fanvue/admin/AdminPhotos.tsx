@@ -31,15 +31,16 @@ export default function AdminPhotos() {
 
   return (
     <PageTransition>
-      <div className="page">
-        <div className="chip-row mb-5">
+      <div className="adm-page">
+        <div className="adm-seg" style={{ marginBottom: 20 }}>
           {tabs.map((tb) => (
             <button
               key={tb.key}
-              className={`chip${tab === tb.key ? ' active' : ''}`}
+              type="button"
+              className={tab === tb.key ? 'is-active' : ''}
               onClick={() => setTab(tb.key)}
             >
-              <tb.Icon /> {tb.label}
+              {tb.label}
             </button>
           ))}
         </div>
@@ -84,7 +85,7 @@ export default function AdminPhotos() {
               {CRYPTO_OPTIONS.map((opt) => {
                 const photoKey = `crypto_${opt.id}`
                 return (
-                  <div key={opt.id} className="card" style={{ padding: '14px' }}>
+                  <div key={opt.id} className="adm-card" style={{ marginBottom: 8 }}>
                     <div className="row gap-3 mb-3">
                       <CryptoLogo network={opt.id} size={48} />
                       <div style={{ flex: 1 }}>
@@ -92,7 +93,7 @@ export default function AdminPhotos() {
                         <div className="t-xs t-muted">{opt.symbol}</div>
                       </div>
                       {photos[photoKey] && (
-                        <span className="badge badge-completed" style={{ fontSize: 10 }}>
+                        <span className="adm-badge adm-badge--ok">
                           ✓ {lang === 'ru' ? 'Свой' : 'Custom'}
                         </span>
                       )}
@@ -119,7 +120,7 @@ export default function AdminPhotos() {
               className="col gap-4"
             >
               {products.map((p) => (
-                <div key={p.id} className="card" style={{ padding: '14px' }}>
+                <div key={p.id} className="adm-card" style={{ marginBottom: 8 }}>
                   <div className="row gap-3 mb-3">
                     <div style={{
                       width: 40, height: 40, borderRadius: 10,

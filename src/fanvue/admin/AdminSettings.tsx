@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { AdminSection, AdminCard, AdminToggle } from './ui'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
@@ -37,32 +38,32 @@ function LinkRow({ field }: { field: typeof LINK_FIELDS[number] }) {
   }
 
   return (
-    <motion.div className="card mb-3" style={{ padding: 14 }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="adm-card" style={{ marginBottom: 8 }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="t-sm fw-bold mb-1">{field.label}</div>
       {editing ? (
         <div className="col gap-2">
           <input
-            className="input"
+            className="adm-input"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={field.hint}
             style={{ fontSize: 12, fontFamily: 'monospace' }}
           />
           <div className="row gap-2">
-            <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={save}>
+            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save}>
               {lang === 'ru' ? 'Сохранить' : 'Save'}
             </button>
-            <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => { setValue(links[field.key]); setEditing(false) }}>
+            <button type="button" className="adm-btn adm-btn--sm" style={{ flex: 1 }} onClick={() => { setValue(links[field.key]); setEditing(false) }}>
               {lang === 'ru' ? 'Отмена' : 'Cancel'}
             </button>
           </div>
         </div>
       ) : (
         <>
-          <div className="address-text" style={{ padding: 10, background: 'var(--surface)', borderRadius: 10, fontSize: 11, marginBottom: 10, wordBreak: 'break-all' }}>
+          <div className="adm-mono">
             {links[field.key] || (lang === 'ru' ? '— не задано —' : '— not set —')}
           </div>
-          <button className="btn btn-secondary btn-sm" style={{ width: '100%' }} onClick={() => setEditing(true)}>
+          <button type="button" className="adm-btn adm-btn--sm adm-btn--block" onClick={() => setEditing(true)}>
             {lang === 'ru' ? 'Изменить' : 'Edit'}
           </button>
         </>
@@ -116,8 +117,8 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
 
   return (
     <motion.div
-      className="card mb-3"
-      style={{ padding: '14px' }}
+      className="adm-card"
+      style={{ marginBottom: 8 }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
@@ -128,25 +129,26 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
           <div className="t-xs t-muted">{network.symbol}</div>
         </div>
         {hasQr && (
-          <span className="badge badge-completed" style={{ fontSize: 10 }}>QR</span>
+          <span className="adm-badge adm-badge--ok">QR</span>
         )}
       </div>
 
       {editing ? (
         <div className="col gap-2">
           <input
-            className="input"
+            className="adm-input"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={network.name}
             style={{ fontSize: 12, fontFamily: 'monospace' }}
           />
           <div className="row gap-2">
-            <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={save}>
+            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save}>
               {t('admin_save')}
             </button>
             <button
-              className="btn btn-secondary btn-sm"
+              type="button"
+              className="adm-btn adm-btn--sm"
               style={{ flex: 1 }}
               onClick={() => { setValue(addresses[network.id]); setEditing(false) }}
             >
@@ -156,26 +158,24 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
         </div>
       ) : (
         <>
-          <div
-            className="address-text"
-            style={{ padding: 10, background: 'var(--surface)', borderRadius: 10, fontSize: 11, marginBottom: 10 }}
-          >
+          <div className="adm-mono">
             {addresses[network.id] || (lang === 'ru' ? '— не задано —' : '— not set —')}
           </div>
-          <div className="row gap-2">
-            <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setEditing(true)}>
+          <div className="adm-btn-row">
+            <button type="button" className="adm-btn adm-btn--sm" style={{ flex: 1 }} onClick={() => setEditing(true)}>
               {lang === 'ru' ? 'Изменить' : 'Edit'}
             </button>
             <button
-              className="btn btn-secondary btn-sm"
+              type="button"
+              className="adm-btn adm-btn--sm"
               style={{ flex: 1 }}
               onClick={() => fileRef.current?.click()}
             >
-              📷 {hasQr ? (lang === 'ru' ? 'Заменить QR' : 'Replace QR') : t('admin_qr_upload')}
+              {hasQr ? (lang === 'ru' ? 'Заменить QR' : 'Replace QR') : t('admin_qr_upload')}
             </button>
             {hasQr && (
-              <button className="btn btn-danger btn-sm" onClick={removeQr} style={{ width: 'auto', padding: '8px 12px' }}>
-                🗑
+              <button type="button" className="adm-btn adm-btn--sm adm-btn--danger" onClick={removeQr}>
+                {lang === 'ru' ? 'Удалить QR' : 'Remove QR'}
               </button>
             )}
           </div>
@@ -216,70 +216,35 @@ export default function AdminSettings() {
 
   return (
     <PageTransition>
-      <div className="page">
-        {/* Maintenance toggle */}
-        <div className="section-title mb-3">{t('admin_maintenance')}</div>
-        <motion.div
-          className="card mb-5"
-          style={{
-            padding: '16px',
-            background: maintenance ? 'rgba(239,68,68,0.08)' : 'var(--surface)',
-            border: maintenance ? '1px solid rgba(239,68,68,0.3)' : '1px solid var(--b-default)',
-          }}
-        >
-          <div className="row-between">
-            <div style={{ flex: 1 }}>
-              <div className="t-sm fw-bold">
-                {maintenance
-                  ? (lang === 'ru' ? '⛔ Магазин ВЫКЛЮЧЕН' : '⛔ Shop is OFF')
-                  : (lang === 'ru' ? '✅ Магазин работает' : '✅ Shop is ON')}
-              </div>
-              <div className="t-xs t-muted mt-1">
-                {maintenance
-                  ? (lang === 'ru' ? 'Покупатели видят "Тех. работы". Выключи чтобы вернуть магазин.' : 'Buyers see maintenance screen. Toggle to bring shop back.')
-                  : (lang === 'ru' ? 'Магазин доступен покупателям. Включи чтобы закрыть на тех. работы.' : 'Shop is live. Toggle to put in maintenance mode.')}
-              </div>
-            </div>
-            <motion.button
-              className="lang-toggle"
-              style={{ width: 56, height: 30, padding: 3 }}
-              onClick={handleToggle}
-              whileTap={{ scale: 0.95 }}
-            >
-              <motion.div
-                style={{
-                  width: 22, height: 22, borderRadius: '50%',
-                  background: maintenance ? 'var(--red)' : 'var(--green)',
-                  position: 'absolute', top: 3,
-                }}
-                animate={{ left: maintenance ? 28 : 3 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              />
-            </motion.button>
-          </div>
-        </motion.div>
+      <div className="adm-page">
+        <AdminSection label={t('admin_maintenance')}>
+          <AdminCard variant={maintenance ? 'danger' : undefined}>
+            <AdminToggle
+              on={maintenance}
+              onToggle={handleToggle}
+              label={maintenance ? (lang === 'ru' ? 'Магазин закрыт' : 'Shop closed') : (lang === 'ru' ? 'Магазин открыт' : 'Shop open')}
+              description={lang === 'ru' ? 'Синхронизируется на все устройства' : 'Syncs across all devices'}
+            />
+          </AdminCard>
+        </AdminSection>
 
-        {/* Crypto addresses */}
-        <div className="section-title mb-2">{t('admin_addresses')}</div>
-        <div className="t-xs t-muted mb-3">{t('admin_addr_hint')}</div>
-        <div className="t-xs t-muted mb-4" style={{ lineHeight: 1.5 }}>
-          {t('admin_qr_hint')}
-        </div>
-
+        <AdminSection label={t('admin_addresses')}>
+        <p style={{ margin: '0 0 12px', fontSize: 12, lineHeight: 1.5, color: 'var(--adm-muted)' }}>
+          {t('admin_addr_hint')}. {t('admin_qr_hint')}
+        </p>
         {CRYPTO_OPTIONS.map((opt) => (
           <AddressRow key={opt.id} network={opt} />
         ))}
+        </AdminSection>
 
-        {/* Site links */}
-        <div className="section-title mt-5 mb-2">
-          {lang === 'ru' ? 'Ссылки и контакты' : 'Links & contacts'}
-        </div>
-        <div className="t-xs t-muted mb-3">
+        <AdminSection label={lang === 'ru' ? 'Ссылки и контакты' : 'Links & contacts'}>
+        <p style={{ fontSize: 12, color: 'var(--adm-muted)', margin: '0 0 12px', lineHeight: 1.45 }}>
           {lang === 'ru'
-            ? 'Чат, отзывы, канал, связь со мной — меняй в любое время, изменения видны сразу.'
-            : 'Chat, reviews, channel, contact — edit anytime, changes apply instantly.'}
-        </div>
+            ? 'Для закрытого канала — инвайт t.me/+...'
+            : 'Private channel — use t.me/+... invite'}
+        </p>
         {LINK_FIELDS.map((f) => <LinkRow key={f.key} field={f} />)}
+        </AdminSection>
       </div>
     </PageTransition>
   )

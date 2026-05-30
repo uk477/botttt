@@ -5,6 +5,7 @@ import CryptoLogo from '../components/CryptoLogo'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
 import type { RefWithdrawal } from '../store/types'
+import { AdminSegmented, AdminStat, AdminEmpty, AdminCard } from './ui'
 
 type Tab = 'pending' | 'all'
 
@@ -15,15 +16,15 @@ const STATUS_COLOR: Record<RefWithdrawal['status'], string> = {
 }
 
 const STATUS_LABEL_RU: Record<RefWithdrawal['status'], string> = {
-  pending:   '⏳ Ожидает',
-  completed: '✅ Выплачено',
-  rejected:  '❌ Отклонено',
+  pending:   'Ожидает',
+  completed: 'Выплачено',
+  rejected:  'Отклонено',
 }
 
 const STATUS_LABEL_EN: Record<RefWithdrawal['status'], string> = {
-  pending:   '⏳ Pending',
-  completed: '✅ Paid',
-  rejected:  '❌ Rejected',
+  pending:   'Pending',
+  completed: 'Paid',
+  rejected:  'Rejected',
 }
 
 function formatDate(iso: string) {
@@ -42,16 +43,17 @@ function TxidInput({ id }: { id: string }) {
   return (
     <div className="col gap-2" style={{ marginTop: 8 }}>
       <input
-        className="input"
+        className="adm-input"
         style={{ fontSize: 12 }}
         placeholder="TX hash"
         value={tx}
         onChange={(e) => setTx(e.target.value)}
       />
-      <div className="row gap-2">
-        <motion.button
-          className="btn btn-primary btn-sm"
-          style={{ flex: 1, fontSize: 12 }}
+      <div className="adm-btn-row">
+        <button
+          type="button"
+          className="adm-btn adm-btn--primary adm-btn--sm"
+          style={{ flex: 1 }}
           onClick={() => {
             const w = useStore.getState().refWithdrawals.find((x) => x.id === id)
             if (!w) return
@@ -70,32 +72,31 @@ function TxidInput({ id }: { id: string }) {
             if (w.uid) notifyUserWithButton(w.uid, userMsg, 'Открыть баланс')
             notifyAdmin(`✅ Вывод одобрен\n🆔 ${w.id}\n💵 $${w.amount.toFixed(2)} · ${net?.name ?? w.network}\n${tx ? `🔗 ${tx}` : ''}`)
           }}
-          whileTap={{ scale: 0.97 }}
         >
-          {lang === 'ru' ? '✓ Подтвердить выплату' : '✓ Confirm Payout'}
-        </motion.button>
-        <motion.button
-          className="btn btn-ghost btn-sm"
-          style={{ flex: 1, fontSize: 12, color: '#ff5050' }}
+          {lang === 'ru' ? 'Подтвердить выплату' : 'Confirm payout'}
+        </button>
+        <button
+          type="button"
+          className="adm-btn adm-btn--sm adm-btn--danger"
+          style={{ flex: 1 }}
           onClick={() => setShowReason((v) => !v)}
-          whileTap={{ scale: 0.97 }}
         >
-          {lang === 'ru' ? '✕ Отклонить' : '✕ Reject'}
-        </motion.button>
+          {lang === 'ru' ? 'Отклонить' : 'Reject'}
+        </button>
       </div>
 
       {showReason && (
         <div className="col gap-2" style={{ marginTop: 4 }}>
           <textarea
-            className="input"
+            className="adm-input"
             style={{ fontSize: 12, minHeight: 60, resize: 'vertical' }}
             placeholder={lang === 'ru' ? 'Причина отклонения (увидит пользователь)' : 'Reject reason (user will see)'}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
-          <motion.button
-            className="btn btn-sm"
-            style={{ fontSize: 12, background: '#ff5050', color: '#fff' }}
+          <button
+            type="button"
+            className="adm-btn adm-btn--sm adm-btn--danger adm-btn--block"
             disabled={!reason.trim()}
             onClick={() => {
               const trimmed = reason.trim()
@@ -128,10 +129,9 @@ function TxidInput({ id }: { id: string }) {
               setShowReason(false)
               setReason('')
             }}
-            whileTap={{ scale: 0.97 }}
           >
             {lang === 'ru' ? 'Подтвердить отклонение' : 'Confirm reject'}
-          </motion.button>
+          </button>
         </div>
       )}
     </div>
@@ -152,87 +152,42 @@ export default function AdminReferrals() {
 
   return (
     <PageTransition>
-      <div className="page adm2-page">
-        {/* HERO */}
-        <div className="adm2-hero">
-          <div>
-            <div className="adm2-hero-eyebrow">{lang === 'ru' ? 'Финансы' : 'Finance'}</div>
-            <div className="adm2-hero-title">
-              {lang === 'ru' ? 'Реф. ' : 'Ref '}<span>{lang === 'ru' ? 'выводы' : 'payouts'}</span>
-            </div>
-            <div className="adm2-hero-sub">
-              {lang === 'ru' ? 'Обработайте заявки рефералов' : 'Process referral requests'}
-            </div>
-          </div>
-        </div>
-
-        {/* KPI */}
-        <div className="adm2-kpi-grid mb-4">
-          <div className="adm2-kpi" style={{ ['--kpi-accent' as never]: '57,255,99' }}>
-            <div className="adm2-kpi-top">
-              <div className="adm2-kpi-ic">⏳</div>
-            </div>
-            <div className="adm2-kpi-val">{pending.length}</div>
-            <div className="adm2-kpi-lbl">{lang === 'ru' ? 'Ожидают' : 'Pending'}</div>
-          </div>
-          <div className="adm2-kpi" style={{ ['--kpi-accent' as never]: '118,163,116' }}>
-            <div className="adm2-kpi-top">
-              <div className="adm2-kpi-ic">💰</div>
-            </div>
-            <div className="adm2-kpi-val">${totalOut.toFixed(2)}</div>
-            <div className="adm2-kpi-lbl">{lang === 'ru' ? 'К выплате' : 'To pay'}</div>
-          </div>
+      <div className="adm-page">
+        <div className="adm-stats" style={{ marginBottom: 12 }}>
+          <AdminStat label={lang === 'ru' ? 'Ожидают' : 'Pending'} value={String(pending.length)} />
+          <AdminStat label={lang === 'ru' ? 'К выплате' : 'To pay'} value={`$${totalOut.toFixed(2)}`} />
         </div>
 
         {user && user.ref_balance > 0 && (
-          <div className="adm2-att-row mb-3" style={{ cursor: 'default' }}>
-            <span className="adm2-att-dot" style={{ background: '#94c592' }} />
-            <div className="adm2-att-body">
-              <div className="t-xs t-muted">
-                {lang === 'ru' ? 'Реф. баланс пользователя' : 'User ref balance'}
-              </div>
-              <div className="t-md fw-black" style={{ color: '#39ff63' }}>
-                ${user.ref_balance.toFixed(2)}
-              </div>
-            </div>
-          </div>
+          <AdminCard className="mb-3">
+            <div style={{ fontSize: 11, color: 'var(--adm-muted)' }}>{lang === 'ru' ? 'Ваш реф. баланс' : 'Your ref balance'}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--adm-accent)', marginTop: 4 }}>${user.ref_balance.toFixed(2)}</div>
+          </AdminCard>
         )}
 
-        {/* Segmented tabs */}
-        <div className="adm2-segment mb-4" style={{ display: 'flex', width: '100%' }}>
-          {(['pending', 'all'] as Tab[]).map((tb) => (
-            <button
-              key={tb}
-              className={`adm2-seg-btn${tab === tb ? ' is-active' : ''}`}
-              onClick={() => setTab(tb)}
-              style={{ flex: 1, position: 'relative' }}
-            >
-              {tab === tb && (
-                <motion.span className="adm2-seg-pill" layoutId="adm2-refseg" transition={{ type: 'spring', stiffness: 380, damping: 30 }} />
-              )}
-              <span style={{ position: 'relative', zIndex: 1 }}>
-                {tb === 'pending'
-                  ? `${lang === 'ru' ? 'Ожидают' : 'Pending'} (${pending.length})`
-                  : `${lang === 'ru' ? 'Все' : 'All'} (${refWithdrawals.length})`}
-              </span>
-            </button>
-          ))}
-        </div>
+        <AdminSegmented
+          options={([
+            { id: 'pending' as Tab, label: `${lang === 'ru' ? 'Ожидают' : 'Pending'} (${pending.length})` },
+            { id: 'all' as Tab, label: `${lang === 'ru' ? 'Все' : 'All'} (${refWithdrawals.length})` },
+          ])}
+          value={tab}
+          onChange={setTab}
+        />
 
         {list.length === 0 ? (
-          <div className="t-sm t-muted" style={{ textAlign: 'center', paddingTop: 40 }}>
+          <AdminEmpty>
             {tab === 'pending'
-              ? (lang === 'ru' ? 'Нет заявок на ожидании' : 'No pending requests')
+              ? (lang === 'ru' ? 'Нет заявок в ожидании' : 'No pending requests')
               : (lang === 'ru' ? 'Нет выводов' : 'No withdrawals')}
-          </div>
+          </AdminEmpty>
         ) : (
-          <div className="col gap-3">
+          <div className="col gap-3" style={{ marginTop: 14 }}>
             <AnimatePresence>
               {list.map((w, i) => (
                 <motion.div
                   key={w.id}
-                  className="adm2-att-row"
-                  style={{ padding: '14px 16px', cursor: 'default', display: 'block' }}
+                  className="adm-card"
+                  style={{ padding: '14px 16px' }}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.04 }}
@@ -272,16 +227,16 @@ export default function AdminReferrals() {
 
                   {w.status === 'pending' && (
                     <>
-                      <motion.button
-                        className="t-xs t-brand fw-bold"
-                        style={{ marginTop: 10, display: 'block' }}
+                      <button
+                        type="button"
+                        className="adm-btn adm-btn--sm"
+                        style={{ marginTop: 10, width: '100%' }}
                         onClick={() => setExpanded(expanded === w.id ? null : w.id)}
-                        whileTap={{ scale: 0.95 }}
                       >
                         {expanded === w.id
-                          ? (lang === 'ru' ? '▲ Скрыть' : '▲ Hide')
-                          : (lang === 'ru' ? '▼ Выплатить' : '▼ Pay Out')}
-                      </motion.button>
+                          ? (lang === 'ru' ? 'Скрыть' : 'Hide')
+                          : (lang === 'ru' ? 'Выплатить' : 'Pay out')}
+                      </button>
                       <AnimatePresence>
                         {expanded === w.id && (
                           <motion.div

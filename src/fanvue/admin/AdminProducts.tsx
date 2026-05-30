@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
-import ConfirmSheet from '../components/ConfirmSheet'
+import { AdminSheet, AdminConfirmSheet } from './ui'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
@@ -65,21 +65,17 @@ export default function AdminProducts() {
 
   return (
     <PageTransition>
-      <div className="page">
-        <motion.button
-          className="btn btn-primary mb-4"
-          onClick={startNew}
-          whileTap={{ scale: 0.97 }}
-        >
+      <div className="adm-page">
+        <button type="button" className="adm-btn adm-btn--primary" style={{ width: '100%', marginBottom: 16 }} onClick={startNew}>
           + {t('admin_add_product')}
-        </motion.button>
+        </button>
 
         <div className="col gap-3">
           {products.map((p, i) => (
             <motion.div
               key={p.id}
-              className="card"
-              style={{ padding: '14px', display: 'flex', alignItems: 'center', gap: 12 }}
+              className="adm-card"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
@@ -127,60 +123,34 @@ export default function AdminProducts() {
         </div>
       </div>
 
-      {/* Editor modal */}
-      <AnimatePresence>
-        {editing && (
-          <motion.div
-            className="modal-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={(e) => { if (e.target === e.currentTarget) setEditing(null) }}
-          >
-            <motion.div
-              className="sheet"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-              style={{ maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
-            >
-              <motion.div
-                className="sheet-handle"
-                style={{ cursor: 'grab', touchAction: 'none' }}
-                drag="y"
-                dragConstraints={{ top: 0 }}
-                dragElastic={{ top: 0, bottom: 0.3 }}
-                onDragEnd={(_, info) => { if (info.offset.y > 80) setEditing(null) }}
-              />
-              <div className="t-lg fw-black mb-4">
-                {editing.id && products.some((p) => p.id === editing.id)
-                  ? t('admin_edit_product')
-                  : t('admin_add_product')}
-              </div>
-
+      <AdminSheet
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={editing && products.some((p) => p.id === editing.id) ? t('admin_edit_product') : t('admin_add_product')}
+      >
+              {editing && (
               <div className="col gap-3">
                 <input
-                  className="input"
+                  className="adm-input"
                   placeholder={lang === 'ru' ? 'Название (RU)' : 'Title (RU)'}
                   value={editing.title}
                   onChange={(e) => setEditing({ ...editing, title: e.target.value })}
                 />
                 <input
-                  className="input"
+                  className="adm-input"
                   placeholder="Title (EN)"
                   value={editing.title_en}
                   onChange={(e) => setEditing({ ...editing, title_en: e.target.value })}
                 />
                 <textarea
-                  className="input"
+                  className="adm-input"
                   placeholder={lang === 'ru' ? 'Описание (RU)' : 'Description (RU)'}
                   value={editing.description}
                   onChange={(e) => setEditing({ ...editing, description: e.target.value })}
                   rows={2}
                 />
                 <textarea
-                  className="input"
+                  className="adm-input"
                   placeholder="Description (EN)"
                   value={editing.desc_en}
                   onChange={(e) => setEditing({ ...editing, desc_en: e.target.value })}
@@ -188,14 +158,14 @@ export default function AdminProducts() {
                 />
                 <div className="row gap-3">
                   <input
-                    className="input"
+                    className="adm-input"
                     type="number"
                     placeholder="Price USD"
                     value={editing.price || ''}
                     onChange={(e) => setEditing({ ...editing, price: parseFloat(e.target.value) || 0 })}
                   />
                   <input
-                    className="input"
+                    className="adm-input"
                     type="number"
                     placeholder="Stock"
                     value={editing.stock || ''}
@@ -203,7 +173,7 @@ export default function AdminProducts() {
                   />
                 </div>
                 <select
-                  className="input"
+                  className="adm-input"
                   value={editing.cat_id}
                   onChange={(e) => setEditing({ ...editing, cat_id: parseInt(e.target.value) })}
                 >
@@ -212,7 +182,7 @@ export default function AdminProducts() {
                   ))}
                 </select>
                 <select
-                  className="input"
+                  className="adm-input"
                   value={editing.delivery}
                   onChange={(e) => setEditing({ ...editing, delivery: e.target.value as 'auto' | 'manual' })}
                 >
@@ -227,19 +197,17 @@ export default function AdminProducts() {
                   />
                 )}
 
-                <motion.button className="btn btn-primary mt-3" onClick={save} whileTap={{ scale: 0.97 }}>
-                  💾 {t('admin_save')}
-                </motion.button>
-                <motion.button className="btn btn-secondary" onClick={() => setEditing(null)} whileTap={{ scale: 0.97 }}>
+                <button type="button" className="adm-btn adm-btn--primary adm-btn--block" style={{ marginTop: 12 }} onClick={save}>
+                  {t('admin_save')}
+                </button>
+                <button type="button" className="adm-btn adm-btn--block" style={{ marginTop: 8 }} onClick={() => setEditing(null)}>
                   {t('cancel')}
-                </motion.button>
+                </button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              )}
+      </AdminSheet>
 
-      <ConfirmSheet
+      <AdminConfirmSheet
         open={!!confirmDelete}
         title={t('admin_confirm_delete')}
         message={confirmDelete ? (lang === 'ru' ? confirmDelete.title : confirmDelete.title_en) : undefined}

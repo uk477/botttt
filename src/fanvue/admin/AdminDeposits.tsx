@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
 import PageTransition from '../components/PageTransition'
+import { AdminSegmented, AdminStat, AdminEmpty } from './ui'
 
 type Filter = 'all' | 'success' | 'pending' | 'failed' | 'expired'
 type Period = 'today' | 'week' | 'month' | 'all'
@@ -45,6 +46,7 @@ const downloadFile = (content: string, filename: string, mime: string) => {
 }
 
 export default function AdminDeposits() {
+  const lang   = useStore((s) => s.lang)
   const logs   = useStore((s) => s.logs)
   const orders = useStore((s) => s.orders)
   const user   = useStore((s) => s.user)
@@ -175,76 +177,40 @@ export default function AdminDeposits() {
     setExportOpen(false)
   }
 
+  const periodOpts = [
+    { id: 'today' as Period, label: lang === 'ru' ? 'Сегодня' : 'Today' },
+    { id: 'week' as Period, label: lang === 'ru' ? 'Неделя' : 'Week' },
+    { id: 'month' as Period, label: lang === 'ru' ? 'Месяц' : 'Month' },
+    { id: 'all' as Period, label: lang === 'ru' ? 'Всё' : 'All' },
+  ]
+  const filterOpts = (['all', 'success', 'pending', 'failed', 'expired'] as Filter[]).map((f) => ({
+    id: f,
+    label: filterLabel[f],
+  }))
+
   return (
     <PageTransition>
-      <div className="page adm2-page">
-        {/* hero */}
-        <motion.div
-          className="adm2-hero"
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32 }}
-        >
-          <div>
-            <div className="adm2-hero-eyebrow">История</div>
-            <div className="adm2-hero-title">Пополнения</div>
-            <div className="adm2-hero-sub">
-              {countSuccess} успешных · ${sumSuccess.toFixed(0)} · {countPending} в ожидании · {countFailed} отменено · {countExpired} истекло
-            </div>
-          </div>
-
-          <div className="adm2-segment">
-            {(['today', 'week', 'month', 'all'] as Period[]).map((p) => (
-              <button
-                key={p}
-                className={`adm2-seg-btn${period === p ? ' is-active' : ''}`}
-                onClick={() => setPeriod(p)}
-              >
-                {period === p && (
-                  <motion.span className="adm2-seg-pill" layoutId="dep-period-pill"
-                    transition={{ type: 'spring', stiffness: 380, damping: 28 }} />
-                )}
-                <span style={{ position: 'relative' }}>{p === 'today' ? 'Сегодня' : p === 'week' ? 'Неделя' : p === 'month' ? 'Месяц' : 'Всё'}</span>
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* status filter */}
-        <div className="adm2-segment" style={{ marginTop: 12 }}>
-          {(['all', 'success', 'pending', 'failed', 'expired'] as Filter[]).map((f) => (
-            <button
-              key={f}
-              className={`adm2-seg-btn${filter === f ? ' is-active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {filter === f && (
-                <motion.span className="adm2-seg-pill" layoutId="dep-filter-pill"
-                  transition={{ type: 'spring', stiffness: 380, damping: 28 }} />
-              )}
-              <span style={{ position: 'relative' }}>{filterLabel[f]}</span>
-            </button>
-          ))}
+      <div className="adm-page">
+        <div className="adm-stats" style={{ marginBottom: 12 }}>
+          <AdminStat label={lang === 'ru' ? 'Успешных' : 'Success'} value={String(countSuccess)} hint={`$${sumSuccess.toFixed(0)}`} />
+          <AdminStat label={lang === 'ru' ? 'Ожидание' : 'Pending'} value={String(countPending)} />
         </div>
 
-        {/* export */}
-        <div style={{ position: 'relative', marginTop: 12 }}>
+        <AdminSegmented options={periodOpts} value={period} onChange={setPeriod} />
+        <div style={{ marginTop: 8 }}>
+          <AdminSegmented options={filterOpts} value={filter} onChange={setFilter} />
+        </div>
+
+        <div style={{ position: 'relative', marginTop: 14 }}>
           <button
+            type="button"
+            className="adm-btn adm-btn--primary"
             onClick={() => setExportOpen((v) => !v)}
             disabled={list.length === 0}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '10px 14px', borderRadius: 12,
-              background: 'rgba(57,255,99,0.10)',
-              border: '1px solid rgba(57,255,99,0.28)',
-              color: '#39ff63', fontWeight: 700, fontSize: 13,
-              cursor: list.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: list.length === 0 ? 0.45 : 1,
-              whiteSpace: 'nowrap',
-            }}
+            style={{ opacity: list.length === 0 ? 0.45 : 1 }}
           >
             <Ic.dl />
-            <span>Скачать ({list.length})</span>
+            {lang === 'ru' ? 'Скачать' : 'Export'} ({list.length})
           </button>
           <AnimatePresence>
             {exportOpen && (
@@ -252,27 +218,21 @@ export default function AdminDeposits() {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.15 }}
-                style={{
-                  position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20,
-                  background: 'rgba(20,22,26,0.98)',
-                  border: '1px solid rgba(57,255,99,0.25)',
-                  borderRadius: 12, padding: 6, minWidth: 220,
-                  boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
-                }}
+                className="adm-card"
+                style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20, minWidth: 220, padding: 6 }}
               >
-                <button className="adm2-att-row" style={{ width: '100%', textAlign: 'left' }} onClick={handleCSV}>
-                  <div className="adm2-att-dot" style={{ background: '#39ff63' }} />
-                  <div className="adm2-att-body">
-                    <div className="t-sm fw-bold">Google Таблицы (CSV)</div>
-                    <div className="t-xs t-muted">Откроется в Google Sheets / Excel</div>
+                <button type="button" className="adm-task" onClick={handleCSV}>
+                  <span className="adm-task-dot" style={{ background: 'var(--adm-accent)' }} />
+                  <div className="adm-task-meta">
+                    <div className="adm-task-title">CSV</div>
+                    <div className="adm-task-sub">Google Sheets / Excel</div>
                   </div>
                 </button>
-                <button className="adm2-att-row" style={{ width: '100%', textAlign: 'left', marginTop: 4 }} onClick={handleTXT}>
-                  <div className="adm2-att-dot" style={{ background: '#9788c4' }} />
-                  <div className="adm2-att-body">
-                    <div className="t-sm fw-bold">Текстовый файл (.txt)</div>
-                    <div className="t-xs t-muted">Простой читаемый отчёт</div>
+                <button type="button" className="adm-task" style={{ marginTop: 6 }} onClick={handleTXT}>
+                  <span className="adm-task-dot" style={{ background: 'var(--adm-warn)' }} />
+                  <div className="adm-task-meta">
+                    <div className="adm-task-title">TXT</div>
+                    <div className="adm-task-sub">{lang === 'ru' ? 'Текстовый отчёт' : 'Text report'}</div>
                   </div>
                 </button>
               </motion.div>
@@ -280,41 +240,38 @@ export default function AdminDeposits() {
           </AnimatePresence>
         </div>
 
-        {/* list */}
-        <div className="col gap-2" style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 14 }}>
           {list.length === 0 && (
-            <div className="t-xs t-muted text-center" style={{ padding: 24 }}>Нет пополнений</div>
+            <AdminEmpty>{lang === 'ru' ? 'Нет пополнений' : 'No deposits'}</AdminEmpty>
           )}
           {list.map((d, i) => (
             <motion.div
               key={d.id}
-              className="adm2-att-row"
+              className="adm-log"
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: Math.min(i * 0.02, 0.3) }}
             >
-              <div className="adm2-att-dot" style={{ background: STATUS_COLOR[d.status] ?? '#888' }} />
-              <div className="adm2-att-body" style={{ minWidth: 0 }}>
-                <div className="t-sm fw-bold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span className="adm-task-dot" style={{ background: STATUS_COLOR[d.status] ?? '#888' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   @{d.username} · ${d.amount.toFixed(2)}
                 </div>
-                <div className="t-xs t-muted" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
                   {d.network ? NETWORK_LABEL[d.network] ?? d.network : '—'} · {fmtDate(d.ts)}
                 </div>
                 {d.tx_hash && (
-                  <div className="t-xs t-muted" style={{ fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: 10, color: 'var(--adm-dim)', fontFamily: 'monospace', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {d.tx_hash}
                   </div>
                 )}
               </div>
-              <div className="t-xs fw-bold" style={{ color: STATUS_COLOR[d.status], whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLOR[d.status], whiteSpace: 'nowrap' }}>
                 {STATUS_LABEL[d.status] ?? d.status}
-              </div>
+              </span>
             </motion.div>
           ))}
         </div>
-
-        <div style={{ height: 20 }} />
       </div>
     </PageTransition>
   )

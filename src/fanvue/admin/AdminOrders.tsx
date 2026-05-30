@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
-import ConfirmSheet from '../components/ConfirmSheet'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
 import type { Order, OrderStatus, OrderKind } from '../store/types'
+import { AdminSegmented, AdminEmpty, AdminSheet, AdminConfirmSheet, AdminMeta, AdminCard, admStatusClass } from './ui'
 
 const STATUSES: Array<OrderStatus | 'all'> = ['all', 'pending', 'paid', 'completed', 'failed', 'expired']
 type KindFilter = 'all' | OrderKind
@@ -139,50 +139,37 @@ export default function AdminOrders() {
 
   return (
     <PageTransition>
-      <div className="page">
-        {/* Kind filter + export */}
-        <div className="row-between mb-3">
-          <div className="row gap-2">
-            {(['all', 'buy', 'deposit'] as KindFilter[]).map((k) => (
-              <motion.button
-                key={k}
-                className={`btn btn-sm ${kind === k ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setKind(k)}
-                whileTap={{ scale: 0.95 }}
-              >
-                {k === 'all' ? (lang === 'ru' ? 'Все' : 'All') : k === 'buy' ? '📦' : '💳'}
-              </motion.button>
-            ))}
+      <div className="adm-page">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <AdminSegmented
+              options={([
+                { id: 'all' as KindFilter, label: lang === 'ru' ? 'Все' : 'All' },
+                { id: 'buy', label: lang === 'ru' ? 'Покупки' : 'Purchases' },
+                { id: 'deposit', label: lang === 'ru' ? 'Депозиты' : 'Deposits' },
+              ])}
+              value={kind}
+              onChange={setKind}
+            />
           </div>
-          <motion.button
-            className="btn btn-ghost btn-sm"
-            style={{ fontSize: 11, gap: 5 }}
-            onClick={handleExportCSV}
-            whileTap={{ scale: 0.95 }}
-          >
-            📊 CSV
-          </motion.button>
+          <button type="button" className="adm-btn" onClick={handleExportCSV}>CSV</button>
         </div>
 
-        {/* Status filter */}
-        <div className="chip-row mb-4">
-          {STATUSES.map((s) => (
-            <button
-              key={s}
-              className={`chip${filter === s ? ' active' : ''}`}
-              onClick={() => setFilter(s)}
-            >
-              {s === 'all' ? (lang === 'ru' ? 'Все' : 'All') : t(`status_${s}` as never)}
-            </button>
-          ))}
-        </div>
+        <AdminSegmented
+          options={STATUSES.map((s) => ({
+            id: s,
+            label: s === 'all' ? (lang === 'ru' ? 'Все' : 'All') : t(`status_${s}` as never),
+          }))}
+          value={filter}
+          onChange={setFilter}
+        />
 
-        <div className="col gap-3">
+        <div className="col gap-3" style={{ marginTop: 14 }}>
           {filtered.map((o, i) => (
-            <motion.div
+            <motion.button
+              type="button"
               key={o.id}
-              className="card"
-              style={{ padding: '14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
+              className="adm-menu-item"
               onClick={() => setOpen(o)}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -204,194 +191,115 @@ export default function AdminOrders() {
                   {o.product_title ?? (o.kind === 'deposit' ? 'Deposit' : 'Order')}
                 </div>
                 <div className="row gap-2 mt-1">
-                  <span className={`badge badge-${o.status}`}>{t(`status_${o.status}` as never)}</span>
+                  <span className={admStatusClass(o.status)}>{t(`status_${o.status}` as never)}</span>
                   <span className="t-xs t-muted">{o.id}</span>
                 </div>
               </div>
-              <div className="t-md fw-black">${o.amount.toFixed(2)}</div>
-            </motion.div>
+              <div className="t-md fw-black" style={{ color: 'var(--adm-accent)' }}>${o.amount.toFixed(2)}</div>
+            </motion.button>
           ))}
           {filtered.length === 0 && (
-            <div className="text-center t-muted" style={{ padding: 40 }}>
-              {lang === 'ru' ? 'Заказы не найдены' : 'No orders found'}
-            </div>
+            <AdminEmpty>{lang === 'ru' ? 'Заказы не найдены' : 'No orders found'}</AdminEmpty>
           )}
         </div>
       </div>
 
-      {/* Order action sheet */}
-      <AnimatePresence>
+      <AdminSheet
+        open={!!open}
+        onClose={() => setOpen(null)}
+        title={open?.product_title ?? (lang === 'ru' ? 'Заказ' : 'Order')}
+      >
         {open && (
-          <motion.div
-            className="modal-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={(e) => { if (e.target === e.currentTarget) setOpen(null) }}
-          >
-            <motion.div
-              className="sheet"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-              style={{ maxHeight: '90dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
-            >
-              <motion.div
-                className="sheet-handle"
-                style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)', margin: '0 auto 12px', cursor: 'grab', touchAction: 'none' }}
-                drag="y"
-                dragConstraints={{ top: 0 }}
-                dragElastic={{ top: 0, bottom: 0.3 }}
-                onDragEnd={(_, info) => { if (info.offset.y > 80) setOpen(null) }}
-              />
+          <>
+            <AdminMeta rows={[
+              { label: 'ID', value: <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{open.id}</span> },
+              { label: lang === 'ru' ? 'Сумма' : 'Amount', value: <span style={{ color: 'var(--adm-accent)' }}>${open.amount.toFixed(2)}</span> },
+              { label: lang === 'ru' ? 'Статус' : 'Status', value: <span className={admStatusClass(open.status)}>{t(`status_${open.status}` as never)}</span> },
+              ...(open.provider ? [{ label: lang === 'ru' ? 'Сеть' : 'Network', value: <span style={{ textTransform: 'uppercase' }}>{open.provider}</span> }] : []),
+              { label: lang === 'ru' ? 'Создан' : 'Created', value: fmt(open.created) },
+              ...(open.paid_at ? [{ label: lang === 'ru' ? 'Оплачен' : 'Paid', value: fmt(open.paid_at) }] : []),
+            ]} />
 
-              <div className="t-lg fw-black mb-3">
-                {open.product_title ?? (lang === 'ru' ? 'Заказ' : 'Order')}
+            {open.status === 'pending' && (
+              <div className="adm-btn-row adm-btn-row--col" style={{ marginBottom: 12 }}>
+                <button type="button" className="adm-btn adm-btn--primary adm-btn--block" onClick={() => handleVerify(open)}>
+                  {t('admin_verify_payment')}
+                </button>
+                <button type="button" className="adm-btn adm-btn--danger adm-btn--block" onClick={() => handleReject(open)}>
+                  {t('admin_reject_payment')}
+                </button>
               </div>
+            )}
 
-              <div className="card mb-4" style={{ padding: 0 }}>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">ID</span>
-                  <span className="t-xs fw-bold" style={{ fontFamily: 'monospace' }}>{open.id}</span>
+            {open.status === 'paid' && open.kind === 'buy' && (
+              <button type="button" className="adm-btn adm-btn--primary adm-btn--block" style={{ marginBottom: 12 }} onClick={() => handleVerify(open)}>
+                {t('admin_mark_completed')}
+              </button>
+            )}
+
+            {open.kind === 'buy' && (
+              <AdminCard className="mb-3">
+                <div className="adm-section-label" style={{ marginBottom: 8 }}>
+                  {lang === 'ru' ? 'Выдача клиенту' : 'Delivery to client'}
                 </div>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Сумма' : 'Amount'}</span>
-                  <span className="t-md fw-black t-purple">${open.amount.toFixed(2)}</span>
-                </div>
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Статус' : 'Status'}</span>
-                  <span className={`badge badge-${open.status}`}>{t(`status_${open.status}` as never)}</span>
-                </div>
-                {open.provider && (
-                  <div className="meta-row">
-                    <span className="t-xs t-muted">{lang === 'ru' ? 'Сеть' : 'Network'}</span>
-                    <span className="t-xs fw-bold" style={{ textTransform: 'uppercase' }}>{open.provider}</span>
-                  </div>
-                )}
-                <div className="meta-row">
-                  <span className="t-xs t-muted">{lang === 'ru' ? 'Создан' : 'Created'}</span>
-                  <span className="t-xs">{fmt(open.created)}</span>
-                </div>
-                {open.paid_at && (
-                  <div className="meta-row">
-                    <span className="t-xs t-muted">{lang === 'ru' ? 'Оплачен' : 'Paid'}</span>
-                    <span className="t-xs">{fmt(open.paid_at)}</span>
-                  </div>
-                )}
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--adm-muted)', lineHeight: 1.45 }}>
+                  {lang === 'ru'
+                    ? 'Логин, пароль, почта — клиент увидит в заказе.'
+                    : 'Credentials — visible in client order.'}
+                </p>
+                <textarea
+                  className="adm-input"
+                  rows={10}
+                  placeholder={DELIVERY_PLACEHOLDER}
+                  value={deliveryDraft}
+                  onChange={(e) => setDeliveryDraft(e.target.value)}
+                  style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre' }}
+                />
+                <button type="button" className="adm-btn adm-btn--primary adm-btn--block" style={{ marginTop: 10 }} onClick={() => handleIssueDelivery(open)}>
+                  {open.deliveryData
+                    ? (lang === 'ru' ? 'Обновить выдачу' : 'Update delivery')
+                    : (lang === 'ru' ? 'Выдать клиенту' : 'Issue to client')}
+                </button>
+              </AdminCard>
+            )}
+
+            <button type="button" className="adm-btn adm-btn--danger adm-btn--block" style={{ marginBottom: 12 }} onClick={() => handleDelete(open)}>
+              {t('admin_delete')}
+            </button>
+
+            <AdminCard>
+              <div className="adm-section-label" style={{ marginBottom: 8 }}>
+                {lang === 'ru' ? 'Зачислить баланс' : 'Credit balance'}
               </div>
-
-              {open.status === 'pending' && (
-                <div className="col gap-3">
-                  <motion.button
-                    className="btn btn-primary"
-                    style={{ background: 'var(--g-success)' }}
-                    onClick={() => handleVerify(open)}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    {t('admin_verify_payment')}
-                  </motion.button>
-                  <motion.button
-                    className="btn btn-danger"
-                    onClick={() => handleReject(open)}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    {t('admin_reject_payment')}
-                  </motion.button>
-                </div>
-              )}
-
-              {(open.status === 'paid' && open.kind === 'buy') && (
-                <motion.button
-                  className="btn btn-primary"
-                  onClick={() => handleVerify(open)}
-                  whileTap={{ scale: 0.97 }}
+              <div className="row gap-2">
+                <input
+                  className="adm-input"
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="$0.00"
+                  value={balAmt}
+                  onChange={(e) => setBalAmt(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="adm-btn adm-btn--primary adm-btn--sm"
+                  onClick={handleIssueBalance}
+                  disabled={!balAmt || balSent}
                 >
-                  {t('admin_mark_completed')}
-                </motion.button>
-              )}
-
-              {/* Delivery data — only for buy orders */}
-              {open.kind === 'buy' && (
-                <div className="card mt-4" style={{ padding: 14 }}>
-                  <div className="t-sm fw-bold mb-2">
-                    📦 {lang === 'ru' ? 'Данные для выдачи клиенту' : 'Delivery data for client'}
-                  </div>
-                  <div className="t-xs t-muted mb-2">
-                    {lang === 'ru'
-                      ? 'Заполните логин/пароль аккаунта и почты. Эти данные клиент увидит в своём заказе.'
-                      : 'Fill in account & email credentials. The client will see this in their order.'}
-                  </div>
-                  <textarea
-                    className="input"
-                    rows={10}
-                    placeholder={DELIVERY_PLACEHOLDER}
-                    value={deliveryDraft}
-                    onChange={(e) => setDeliveryDraft(e.target.value)}
-                    style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre' }}
-                  />
-                  <motion.button
-                    className="btn btn-primary mt-2"
-                    style={{ background: 'var(--g-success, #39ff63)', color: '#0a0a0a' }}
-                    onClick={() => handleIssueDelivery(open)}
-                    whileTap={{ scale: 0.97 }}
-                  >
-                    {open.deliveryData
-                      ? (lang === 'ru' ? '💾 Обновить выдачу' : '💾 Update delivery')
-                      : (lang === 'ru' ? '🚀 Выдать клиенту' : '🚀 Issue to client')}
-                  </motion.button>
-                </div>
-              )}
-
-
-
-              <motion.button
-                className="btn btn-secondary mt-3"
-                onClick={() => handleDelete(open)}
-                whileTap={{ scale: 0.97 }}
-                style={{ color: 'var(--red)' }}
-              >
-                🗑 {t('admin_delete')}
-              </motion.button>
-
-              {/* Issue balance */}
-              <div className="card mt-4" style={{ padding: '14px' }}>
-                <div className="t-sm fw-bold mb-2">💰 {lang === 'ru' ? 'Выдать баланс клиенту' : 'Issue balance to client'}</div>
-                <div className="row gap-2">
-                  <input
-                    className="input"
-                    type="number"
-                    inputMode="decimal"
-                    placeholder="$0.00"
-                    value={balAmt}
-                    onChange={(e) => setBalAmt(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <motion.button
-                    className="btn btn-primary btn-sm"
-                    style={{ flexShrink: 0 }}
-                    onClick={handleIssueBalance}
-                    disabled={!balAmt || balSent}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {balSent ? '✓' : lang === 'ru' ? 'Зачислить' : 'Add'}
-                  </motion.button>
-                </div>
+                  {balSent ? 'OK' : lang === 'ru' ? 'Зачислить' : 'Add'}
+                </button>
               </div>
+            </AdminCard>
 
-              <motion.button
-                className="btn btn-secondary mt-3"
-                onClick={() => setOpen(null)}
-                whileTap={{ scale: 0.97 }}
-              >
-                {t('close')}
-              </motion.button>
-            </motion.div>
-          </motion.div>
+            <button type="button" className="adm-btn adm-btn--block" style={{ marginTop: 12 }} onClick={() => setOpen(null)}>
+              {t('close')}
+            </button>
+          </>
         )}
-      </AnimatePresence>
+      </AdminSheet>
 
-      <ConfirmSheet
+      <AdminConfirmSheet
         open={!!confirmDelete}
         title={t('admin_confirm_delete')}
         message={confirmDelete?.product_title ?? confirmDelete?.id}

@@ -51,7 +51,7 @@ export default function Home() {
 
   const online = useMemo(() => getOnline(new Date(now)), [now])
   const recentSales = useMemo(() => {
-    const fakes = getRecentSales(5, new Date(now))
+    const fakes = getRecentSales(3, new Date(now))
     const reals = realSales.map((s) => {
       const h = ((s.uid * 2654435761) >>> 0).toString(16).toUpperCase().slice(0, 4)
       return {
@@ -71,7 +71,7 @@ export default function Home() {
         seen.add(k)
         return true
       })
-      .slice(0, 5)
+      .slice(0, 3)
   }, [now, realSales])
   const totalSales = useMemo(() => getTotalSales(new Date(now)) + orders.length, [now, orders.length])
 
@@ -420,12 +420,13 @@ export default function Home() {
         />
       </section>
 
-      <SalesHistorySheet
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        lang={lang}
-        productTitle={productTitle}
-      />
+      {historyOpen && (
+        <SalesHistorySheet
+          onClose={() => setHistoryOpen(false)}
+          lang={lang}
+          productTitle={productTitle}
+        />
+      )}
 
       <AnimatePresence>
         {eggPhase === 'loading' && (

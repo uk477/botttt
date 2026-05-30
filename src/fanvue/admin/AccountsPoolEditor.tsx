@@ -68,7 +68,7 @@ function FieldRow({
         color: 'rgba(255,255,255,0.45)', fontFamily: 'ui-monospace, monospace', fontWeight: 700,
       }}>{label}</span>
       <input
-        className="input"
+        className="adm-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -269,7 +269,7 @@ export default function AccountsPoolEditor({
                 {lang === 'ru' ? 'Инструкция (опционально)' : 'Instruction (optional)'}
               </div>
               <textarea
-                className="input"
+                className="adm-input"
                 rows={2}
                 value={a.instruction}
                 onChange={(e) => update(i, { ...a, instruction: e.target.value })}
@@ -281,19 +281,9 @@ export default function AccountsPoolEditor({
         ))}
       </AnimatePresence>
 
-      <motion.button
-        type="button"
-        onClick={add}
-        whileTap={{ scale: 0.97 }}
-        style={{
-          padding: '12px 14px', borderRadius: 12,
-          background: GREEN, color: '#000', fontWeight: 800,
-          fontSize: 13, letterSpacing: '0.04em',
-          boxShadow: `0 8px 24px -10px ${GREEN}88`,
-        }}
-      >
+      <button type="button" className="adm-btn adm-btn--primary adm-btn--block" onClick={add}>
         + {lang === 'ru' ? 'Добавить аккаунт' : 'Add account'}
-      </motion.button>
+      </button>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
-import ConfirmSheet from '../components/ConfirmSheet'
+import { AdminConfirmSheet } from './ui'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
@@ -63,11 +63,11 @@ export default function AdminBroadcast() {
 
   return (
     <PageTransition>
-      <div className="page">
-        <div className="card mb-5" style={{ padding: '16px' }}>
-          <div className="section-title mb-3">{t('admin_broadcast_text')}</div>
+      <div className="adm-page">
+        <div className="adm-card" style={{ marginBottom: 16 }}>
+          <div className="adm-section-label" style={{ marginBottom: 12 }}>{t('admin_broadcast_text')}</div>
           <textarea
-            className="input"
+            className="adm-input"
             rows={5}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -77,35 +77,36 @@ export default function AdminBroadcast() {
             style={{ resize: 'vertical', minHeight: 120 }}
           />
           <div className="t-xs t-muted mt-2">{text.length} / 4096</div>
-          <motion.button
-            className="btn btn-primary mt-4"
+          <button
+            type="button"
+            className="adm-btn adm-btn--primary"
+            style={{ marginTop: 12, width: '100%' }}
             onClick={handleSend}
             disabled={!text.trim() || sending}
-            whileTap={{ scale: 0.97 }}
           >
-            📤 {t('admin_broadcast_send')}
-          </motion.button>
+            {sending ? (lang === 'ru' ? 'Отправка…' : 'Sending…') : t('admin_broadcast_send')}
+          </button>
         </div>
 
-        <div className="section-title mb-3">{t('admin_broadcast_history')}</div>
+        <div className="adm-section-label">{t('admin_broadcast_history')}</div>
         {broadcasts.length === 0 ? (
-          <div className="text-center t-muted" style={{ padding: 40 }}>
+          <div className="adm-empty" style={{ marginTop: 12 }}>
             {lang === 'ru' ? 'История пуста' : 'History is empty'}
           </div>
         ) : (
-          <div className="col gap-3">
+          <div style={{ marginTop: 8 }}>
             {broadcasts.map((b, i) => (
               <motion.div
                 key={b.id}
-                className="card"
-                style={{ padding: '14px' }}
+                className="adm-card"
+                style={{ marginBottom: 8 }}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
               >
                 <div className="row-between mb-2">
                   <div className="t-xs t-muted">{new Date(b.ts).toLocaleString()}</div>
-                  <span className="badge badge-completed">→ {b.sent_to}</span>
+                  <span className="adm-badge adm-badge--ok">→ {b.sent_to}</span>
                 </div>
                 <div className="t-sm" style={{ lineHeight: 1.5 }}>{b.text}</div>
               </motion.div>
@@ -114,7 +115,7 @@ export default function AdminBroadcast() {
         )}
       </div>
 
-      <ConfirmSheet
+      <AdminConfirmSheet
         open={showConfirm}
         title={lang === 'ru' ? 'Отправить рассылку?' : 'Send broadcast?'}
         message={text.slice(0, 120) + (text.length > 120 ? '…' : '')}

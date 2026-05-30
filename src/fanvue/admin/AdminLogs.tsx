@@ -6,6 +6,7 @@ import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import type { PaymentLog } from '../store/types'
 import { api } from '../store/api'
+import { AdminSegmented, AdminEmpty } from './ui'
 
 type LogFilter = 'all' | 'success' | 'failed'
 
@@ -61,95 +62,59 @@ export default function AdminLogs() {
 
   return (
     <PageTransition>
-      <div className="page">
-        {/* Filters */}
-        <div className="chip-row mb-4">
-          {(['all', 'success', 'failed'] as LogFilter[]).map((f) => (
-            <button
-              key={f}
-              className={`chip${filter === f ? ' active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' && t('admin_log_all')}
-              {f === 'success' && t('admin_log_success')}
-              {f === 'failed' && t('admin_log_failed')}
-            </button>
-          ))}
+      <div className="adm-page">
+        <AdminSegmented
+          options={([
+            { id: 'all' as LogFilter, label: t('admin_log_all') },
+            { id: 'success' as LogFilter, label: t('admin_log_success') },
+            { id: 'failed' as LogFilter, label: t('admin_log_failed') },
+          ])}
+          value={filter}
+          onChange={setFilter}
+        />
+
+        <div className="adm-btn-row" style={{ margin: '12px 0 16px' }}>
+          <button type="button" className="adm-btn" style={{ flex: 1 }} onClick={exportCSV}>{t('admin_export_csv')}</button>
+          <button type="button" className="adm-btn" style={{ flex: 1 }} onClick={exportJSON}>{t('admin_export_json')}</button>
         </div>
 
-        {/* Export */}
-        <div className="row gap-2 mb-5">
-          <motion.button
-            className="btn btn-secondary btn-sm"
-            style={{ flex: 1 }}
-            onClick={exportCSV}
-            whileTap={{ scale: 0.97 }}
-          >
-            📄 {t('admin_export_csv')}
-          </motion.button>
-          <motion.button
-            className="btn btn-secondary btn-sm"
-            style={{ flex: 1 }}
-            onClick={exportJSON}
-            whileTap={{ scale: 0.97 }}
-          >
-            🗂 {t('admin_export_json')}
-          </motion.button>
-        </div>
-
-        {/* Logs */}
-        <div className="col gap-2">
+        <div>
           {filtered.map((log, i) => {
             const ok = log.status === 'success'
             return (
               <motion.div
                 key={log.id}
-                className="card"
-                style={{ padding: '12px 14px' }}
+                className="adm-log"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.02, 0.4) }}
               >
-                <div className="row gap-3 mb-1">
-                  <span style={{
-                    width: 28, height: 28, borderRadius: 8,
-                    background: ok ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: ok ? 'var(--green)' : 'var(--red)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 12, flexShrink: 0,
-                  }}>
-                    {ok ? '✓' : '✕'}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="t-sm fw-bold">
-                      @{log.username} · {log.kind === 'buy' ? log.product ?? 'Buy' : 'Deposit'}
-                    </div>
-                    <div className="t-xs t-muted">
-                      {new Date(log.ts).toLocaleString()} · UID {log.uid}
-                    </div>
+                <span className="adm-task-dot" style={{ background: ok ? 'var(--adm-accent)' : 'var(--adm-danger)' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    @{log.username} · {log.kind === 'buy' ? log.product ?? 'Buy' : 'Deposit'}
                   </div>
-                  <div className="col" style={{ alignItems: 'flex-end' }}>
-                    <div className="t-sm fw-black" style={{ color: log.kind === 'deposit' ? 'var(--green)' : 'var(--t-primary)' }}>
-                      {log.kind === 'deposit' ? '+' : ''}${log.amount.toFixed(2)}
-                    </div>
-                    {log.network && (
-                      <div className="t-xs t-muted" style={{ textTransform: 'uppercase' }}>{log.network}</div>
-                    )}
+                  <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
+                    {new Date(log.ts).toLocaleString()} · UID {log.uid}
                   </div>
+                  {log.tx_hash && (
+                    <div style={{ fontSize: 10, color: 'var(--adm-dim)', fontFamily: 'monospace', marginTop: 4, wordBreak: 'break-all' }}>
+                      {log.tx_hash}
+                    </div>
+                  )}
                 </div>
-                {log.tx_hash && (
-                  <div className="t-xs t-muted" style={{ fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 4 }}>
-                    tx: {log.tx_hash}
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--adm-accent)' }}>
+                    {log.kind === 'deposit' ? '+' : ''}${log.amount.toFixed(2)}
                   </div>
-                )}
+                  {log.network && (
+                    <div style={{ fontSize: 10, color: 'var(--adm-muted)', textTransform: 'uppercase' }}>{log.network}</div>
+                  )}
+                </div>
               </motion.div>
             )
           })}
-          {filtered.length === 0 && (
-            <div className="text-center t-muted" style={{ padding: 40 }}>
-              {t('admin_no_logs')}
-            </div>
-          )}
+          {filtered.length === 0 && <AdminEmpty>{t('admin_no_logs')}</AdminEmpty>}
         </div>
       </div>
     </PageTransition>

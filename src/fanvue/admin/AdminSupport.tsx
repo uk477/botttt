@@ -14,20 +14,20 @@ type SupportMessageWithUid = SupportMessage & { uid?: number }
 
 /* ─────────── tokens ─────────── */
 const C = {
-  bg: '#0a0b0d',
-  panel: 'rgba(22,23,26,0.72)',
-  panelSolid: '#141518',
-  panelHi: '#1c1d21',
-  line: 'rgba(255,255,255,0.06)',
-  lineHi: 'rgba(255,255,255,0.12)',
-  text: '#f4f4f5',
-  soft: 'rgba(255,255,255,0.72)',
-  muted: 'rgba(255,255,255,0.42)',
-  dim: 'rgba(255,255,255,0.28)',
-  brand: '#3dff66',
-  brandDim: 'rgba(61,255,102,0.14)',
-  red: '#ff5266',
-  amber: '#ffb020',
+  bg: 'var(--adm-bg)',
+  panel: 'var(--adm-surface)',
+  panelSolid: 'var(--adm-surface)',
+  panelHi: 'var(--adm-surface-2)',
+  line: 'var(--adm-border)',
+  lineHi: 'var(--adm-border-strong)',
+  text: 'var(--adm-text)',
+  soft: 'rgba(242, 243, 245, 0.78)',
+  muted: 'var(--adm-muted)',
+  dim: 'var(--adm-dim)',
+  brand: 'var(--adm-accent)',
+  brandDim: 'var(--adm-accent-dim)',
+  red: 'var(--adm-danger)',
+  amber: 'var(--adm-warn)',
   cyan: '#5cd0ff',
 }
 const MONO = 'ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace'
@@ -364,79 +364,45 @@ export default function AdminSupport() {
 
   return (
     <PageTransition>
-      <div className="page" style={{ paddingBottom: 0, background: C.bg }}>
+      <div className="adm-page adm-support" style={{ paddingBottom: 0 }}>
         <AnimatePresence mode="wait">
 
           {/* ═════════════ LIST ═════════════ */}
           {!openUid && (
             <motion.div key="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               {/* Top status strip */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '4px 0 14px',
-              }}>
+              <div className="adm-support-head">
                 <div>
-                  <div style={{ fontSize: 11, color: C.muted, fontFamily: MONO, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                    Fanvue · Care console
+                  <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    {lang === 'ru' ? 'Поддержка' : 'Support'}
                   </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', marginTop: 2 }}>
+                  <h2>
                     {lang === 'ru' ? 'Входящие' : 'Inbox'}
-                    <span style={{ marginLeft: 8, fontSize: 12, color: C.muted, fontFamily: MONO, fontWeight: 500 }}>
-                      {groups.length}
-                    </span>
-                  </div>
+                    <span style={{ marginLeft: 8, fontSize: 13, color: C.muted, fontWeight: 500 }}>{groups.length}</span>
+                  </h2>
                 </div>
-                <div
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7,
-                    padding: '7px 11px', borderRadius: 999,
-                    background: 'rgba(61,255,102,0.08)',
-                    border: `1px solid rgba(61,255,102,0.25)`,
-                    fontSize: 11, fontWeight: 600, color: C.brand,
-                    fontFamily: MONO, letterSpacing: '0.04em', textTransform: 'uppercase',
-                  }}
-                  title={lang === 'ru' ? 'Клиенты видят, что вы в сети' : 'Clients see you online'}
-                >
-                  <motion.span
-                    animate={{ opacity: [1, 0.4, 1] }}
-                    transition={{ duration: 1.8, repeat: Infinity }}
-                    style={{
-                      width: 7, height: 7, borderRadius: '50%',
-                      background: C.brand, boxShadow: `0 0 8px ${C.brand}`,
-                    }} />
+                <div className="adm-support-live" title={lang === 'ru' ? 'Вы в сети' : 'You are online'}>
+                  <motion.span className="adm-support-live-dot" animate={{ opacity: [1, 0.35, 1] }} transition={{ duration: 1.8, repeat: Infinity }} />
                   live
                 </div>
               </div>
 
               {groups.length === 0 ? (
-                <div style={{
-                  marginTop: 30, padding: 40, textAlign: 'center',
-                  border: `1px dashed ${C.line}`, borderRadius: 18, color: C.muted,
-                }}>
-                  <div style={{ fontSize: 32, opacity: 0.4 }}>◌</div>
-                  <div style={{ marginTop: 10, fontSize: 13 }}>
-                    {lang === 'ru' ? 'Тишина. Ни одного открытого диалога.' : 'All quiet. No open conversations.'}
-                  </div>
+                <div className="adm-empty" style={{ marginTop: 20 }}>
+                  {lang === 'ru' ? 'Нет открытых диалогов' : 'No open conversations'}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div>
                   {groups.map((g, i) => (
                     <motion.button
                       key={g.uid}
+                      type="button"
+                      className="adm-menu-item"
                       onClick={() => { setOpenUid(g.uid); haptic('light') }}
                       initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.04 }}
                       whileTap={{ scale: 0.985 }}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                        padding: '12px 14px',
-                        background: g.unread > 0
-                          ? 'linear-gradient(180deg, rgba(61,255,102,0.06), rgba(61,255,102,0.02))'
-                          : C.panel,
-                        border: `1px solid ${g.unread > 0 ? 'rgba(61,255,102,0.28)' : C.line}`,
-                        borderRadius: 16,
-                        backdropFilter: 'blur(20px)',
-                      }}
+                      style={g.unread > 0 ? { borderColor: 'rgba(61, 220, 132, 0.35)', marginBottom: 6 } : { marginBottom: 6 }}
                     >
                       <Avatar size={44} photo={g.photo_url} name={g.full_name} ring={g.unread > 0} />
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -488,18 +454,8 @@ export default function AdminSupport() {
               style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 70px - 48px - 32px)', minHeight: 0 }}
             >
               {/* ── Cockpit header ── */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 10px', marginBottom: 8,
-                background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
-                backdropFilter: 'blur(20px)',
-              }}>
-                <button onClick={() => setOpenUid(null)}
-                  style={{
-                    width: 32, height: 32, borderRadius: 10,
-                    background: C.panelHi, border: `1px solid ${C.line}`,
-                    color: C.text, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>{I.back}</button>
+              <div className="adm-support-toolbar">
+                <button type="button" className="adm3-iconbtn" onClick={() => setOpenUid(null)} aria-label="Back">{I.back}</button>
 
                 <button onClick={() => setInfoOpen(true)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent' }}>
@@ -516,51 +472,30 @@ export default function AdminSupport() {
                   </div>
                 </button>
 
-                <button onClick={() => setInfoOpen(true)}
-                  style={{
-                    width: 32, height: 32, borderRadius: 10,
-                    background: C.panelHi, border: `1px solid ${C.line}`,
-                    color: C.muted, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>{I.info}</button>
+                <button type="button" className="adm3-iconbtn" onClick={() => setInfoOpen(true)} aria-label="Info">{I.info}</button>
               </div>
 
-              {/* ── Context strip: ticket / balance / order ── */}
-              <div style={{
-                display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 8,
-                padding: '2px 0', scrollbarWidth: 'none',
-              }}>
+              <div className="adm-support-chips">
                 {activeTicket ? (
                   <button
+                    type="button"
+                    className="adm-support-chip adm-support-chip--active"
                     onClick={() => { haptic('light'); setConfirmClose(true) }}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-                      padding: '7px 11px', borderRadius: 10,
-                      background: 'rgba(61,255,102,0.08)', border: `1px solid rgba(61,255,102,0.22)`,
-                      color: C.brand, fontSize: 11, fontWeight: 700, fontFamily: MONO,
-                    }}>
-                    ● {activeTicket.id} · {activeTicket.category}
+                  >
+                    {activeTicket.id} · {activeTicket.category}
                     <span style={{ color: C.red, marginLeft: 4 }}>{I.close}</span>
                   </button>
                 ) : (
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-                    padding: '7px 11px', borderRadius: 10,
-                    background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.line}`,
-                    color: C.muted, fontSize: 11, fontWeight: 600, fontFamily: MONO,
-                  }}>
+                  <span className="adm-support-chip">
                     ○ {lang === 'ru' ? 'нет тикета' : 'no ticket'}
                   </span>
                 )}
 
                 {user && (
-                  <span style={{
-                    flexShrink: 0, padding: '7px 11px', borderRadius: 10,
-                    background: C.panel, border: `1px solid ${C.line}`,
-                    fontSize: 11, fontWeight: 700, fontFamily: MONO, color: C.text,
-                  }}>
-                    💰 ${user.balance.toFixed(2)}
+                  <span className="adm-support-chip">
+                    ${user.balance.toFixed(2)}
                     <span style={{ color: C.muted, fontWeight: 500, marginLeft: 6 }}>
-                      / ${user.spent.toFixed(2)} spent
+                      / ${user.spent.toFixed(2)}
                     </span>
                   </span>
                 )}
@@ -749,25 +684,21 @@ export default function AdminSupport() {
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.92 }}
                                 onClick={(e) => e.stopPropagation()}
+                                className="adm-sheet-menu"
                                 style={{
                                   position: 'absolute', top: '100%', marginTop: 6,
                                   [right ? 'right' : 'left']: 0,
-                                  background: '#1a1b1f', border: `1px solid ${C.lineHi}`,
-                                  borderRadius: 12, padding: 4, zIndex: 10, minWidth: 168,
+                                  zIndex: 10, minWidth: 168,
                                   boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
-                                  color: C.text, fontWeight: 500,
                                 }}
                               >
-                                <button onClick={() => handleReply(m)} style={menuBtn}>
-                                  <span style={{ color: C.brand }}>{I.reply}</span>
+                                <button type="button" onClick={() => handleReply(m)}>
                                   {lang === 'ru' ? 'Ответить' : 'Reply'}
                                 </button>
-                                <button onClick={() => { navigator.clipboard?.writeText(m.text); setActionMsg(null); haptic('light') }} style={menuBtn}>
-                                  <span style={{ color: C.cyan }}>{I.copy}</span>
+                                <button type="button" onClick={() => { navigator.clipboard?.writeText(m.text); setActionMsg(null); haptic('light') }}>
                                   {lang === 'ru' ? 'Копировать' : 'Copy'}
                                 </button>
-                                <button onClick={() => handleDelete(m, 'all')} style={{ ...menuBtn, color: C.red }}>
-                                  <span>{I.trash}</span>
+                                <button type="button" className="danger" onClick={() => handleDelete(m, 'all')}>
                                   {lang === 'ru' ? 'Удалить' : 'Delete'}
                                 </button>
                               </motion.div>
@@ -861,19 +792,9 @@ export default function AdminSupport() {
                     lineHeight: 1.4,
                   }}
                 />
-                <motion.button
-                  onClick={send} disabled={!reply.trim()} whileTap={{ scale: 0.92 }}
-                  style={{
-                    width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                    background: reply.trim() ? 'linear-gradient(135deg,#3dff66,#28e052)' : C.panelHi,
-                    color: reply.trim() ? '#0a0a0b' : C.muted,
-                    border: 'none',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    boxShadow: reply.trim() ? `0 6px 18px rgba(61,255,102,0.35)` : 'none',
-                    transition: 'all 160ms ease',
-                  }}>
+                <button type="button" className="adm-support-send" onClick={send} disabled={!reply.trim()}>
                   {I.send}
-                </motion.button>
+                </button>
               </div>
             </motion.div>
           )}
@@ -885,19 +806,16 @@ export default function AdminSupport() {
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setInfoOpen(false)}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'flex-end' }}
+              className="adm-sheet-overlay"
+              style={{ zIndex: 1000, alignItems: 'flex-end', paddingTop: 0 }}
             >
               <motion.div
+                className="adm-sheet"
                 initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 280 }}
                 onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: '100%', maxHeight: '85dvh', overflowY: 'auto',
-                  background: '#101114', borderTop: `1px solid ${C.lineHi}`,
-                  borderRadius: '24px 24px 0 0', padding: '14px 18px 28px',
-                }}
               >
-                <div style={{ width: 36, height: 4, background: C.lineHi, borderRadius: 99, margin: '0 auto 16px' }} />
+                <div className="adm-sheet-handle" />
 
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 18 }}>
                   <Avatar size={56} photo={realPhoto} name={realFull} ring={presence.online} />
@@ -910,7 +828,7 @@ export default function AdminSupport() {
                 </div>
 
                 {user && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 18 }}>
+                  <div className="adm-mini-stats" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
                     <StatTile label="balance" value={`$${user.balance.toFixed(0)}`} color={C.brand} />
                     <StatTile label="spent" value={`$${user.spent.toFixed(0)}`} color={C.amber} />
                     <StatTile label="orders" value={String(user.purchases)} color={C.cyan} />
@@ -918,32 +836,23 @@ export default function AdminSupport() {
                   </div>
                 )}
 
-                {/* Issue balance */}
-                <div style={{
-                  background: C.panelSolid, border: `1px solid ${C.line}`, borderRadius: 14,
-                  padding: 14, marginBottom: 14,
-                }}>
-                  <div style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                <div className="adm-card" style={{ marginBottom: 14 }}>
+                  <div className="adm-section-label" style={{ marginBottom: 8 }}>
                     {lang === 'ru' ? 'Начислить баланс' : 'Issue balance'}
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input type="number" inputMode="decimal" placeholder="$0.00"
+                      className="adm-input"
                       value={balanceInput} onChange={(e) => setBalanceInput(e.target.value)}
-                      style={{
-                        flex: 1, background: '#0c0d10', border: `1px solid ${C.line}`,
-                        borderRadius: 10, padding: '10px 12px', color: C.text, fontSize: 15,
-                        outline: 'none', fontFamily: MONO,
-                      }} />
-                    <motion.button whileTap={{ scale: 0.95 }}
-                      onClick={handleIssueBalance} disabled={!balanceInput || balanceSent}
-                      style={{
-                        padding: '0 18px', borderRadius: 10,
-                        background: balanceSent ? C.brandDim : 'linear-gradient(135deg,#3dff66,#28e052)',
-                        color: balanceSent ? C.brand : '#0a0a0b', fontWeight: 700, fontSize: 13,
-                        border: 'none', flexShrink: 0,
-                      }}>
-                      {balanceSent ? '✓' : (lang === 'ru' ? 'Зачислить' : 'Add')}
-                    </motion.button>
+                      style={{ flex: 1 }} />
+                    <button
+                      type="button"
+                      className="adm-btn adm-btn--primary adm-btn--sm"
+                      onClick={handleIssueBalance}
+                      disabled={!balanceInput || balanceSent}
+                    >
+                      {balanceSent ? 'OK' : (lang === 'ru' ? 'Зачислить' : 'Add')}
+                    </button>
                   </div>
                 </div>
 
@@ -1007,20 +916,11 @@ export default function AdminSupport() {
                     ? `${activeTicket.id} будет помечено как решённое. История чата сохранится.`
                     : `${activeTicket.id} will be marked resolved. Chat history is preserved.`}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setConfirmClose(false)}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 12,
-                      background: C.panelHi, border: `1px solid ${C.line}`, color: C.text, fontWeight: 600, fontSize: 13,
-                    }}>
+                <div className="adm-btn-row">
+                  <button type="button" className="adm-btn" style={{ flex: 1 }} onClick={() => setConfirmClose(false)}>
                     {lang === 'ru' ? 'Отмена' : 'Cancel'}
                   </button>
-                  <button onClick={handleCloseTicket}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 12,
-                      background: C.red, color: '#fff', fontWeight: 700, fontSize: 13, border: 'none',
-                      boxShadow: `0 6px 18px rgba(255,82,102,0.35)`,
-                    }}>
+                  <button type="button" className="adm-btn adm-btn--danger" style={{ flex: 1 }} onClick={handleCloseTicket}>
                     {lang === 'ru' ? 'Закрыть' : 'Close'}
                   </button>
                 </div>
@@ -1036,22 +936,10 @@ export default function AdminSupport() {
 /* ─────────── small components ─────────── */
 function StatTile({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div style={{
-      background: C.panelSolid, border: `1px solid ${C.line}`, borderRadius: 12,
-      padding: '10px 8px', textAlign: 'center',
-    }}>
-      <div style={{ fontSize: 17, fontWeight: 800, color, letterSpacing: '-0.01em' }}>{value}</div>
-      <div style={{ fontSize: 9.5, color: C.muted, fontFamily: MONO, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>
-        {label}
-      </div>
+    <div className="adm-mini-stat">
+      <div className="adm-mini-stat-value" style={{ color }}>{value}</div>
+      <div className="adm-mini-stat-label">{label}</div>
     </div>
   )
 }
 
-const menuBtn: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '10px 12px', textAlign: 'left',
-  background: 'transparent', color: C.text,
-  fontSize: 13, fontWeight: 500, borderRadius: 8,
-  border: 'none', cursor: 'pointer', width: '100%',
-}
