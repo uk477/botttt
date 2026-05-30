@@ -10,6 +10,7 @@ import ConfirmSheet from "../components/ConfirmSheet";
 import OrderReceiptMessage from "../components/OrderReceiptMessage";
 import { parseMessageDate } from "../utils/date";
 import { api } from "../store/api";
+import { resolveActiveTicket } from "../store/supportSync";
 import type {
   SupportMessage,
   SupportAttachment,
@@ -613,10 +614,9 @@ export default function Support() {
   const typingDebounce = useRef<number | null>(null);
   const triagePromptQueuedRef = useRef(false);
 
-  // Active ticket = newest non-closed
   const activeTicket = useMemo(
-    () => tickets.find((t) => t.status !== "closed") ?? null,
-    [tickets],
+    () => resolveActiveTicket(tickets, messages),
+    [tickets, messages],
   );
 
   const lastClosedTicketAt = useMemo(
@@ -632,9 +632,29 @@ export default function Support() {
   const canWrite = !!activeTicket || hasOpenOrder;
   const needsTriage = !activeTicket && !hasOpenOrder;
 
+  /** Last diagnostic flow step (buttons were hidden when user sent a message after). */
+  const activeFlowKey = useMemo(() => {
+    if (activeTicket || hasOpenOrder) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.kind === "system" && m.text.startsWith("flow:")) return m.text.slice(5);
+      if (m.kind === "system" && m.text.startsWith("ticket_opened")) return null;
+    }
+    return null;
+  }, [messages, activeTicket, hasOpenOrder]);
+
+  const pickerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (api.isEnabled()) void useStore.getState().pullServerSession();
   }, []);
+
+  useEffect(() => {
+    if (!needsTriage && !activeFlowKey) return;
+    requestAnimationFrame(() => {
+      pickerRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, [needsTriage, activeFlowKey]);
 
   // Mark admin/bot messages as read on entry + when new arrive
   useEffect(() => {
@@ -1105,12 +1125,24 @@ export default function Support() {
         <div ref={bottomRef} />
       </main>
 
-      {needsTriage && (
-        <TriageCategoryPanel
-          lang={lang}
-          t={t}
-          onPickCategory={handlePickCategory}
-        />
+      {!canWrite && (
+        <div ref={pickerRef}>
+          {activeFlowKey ? (
+            <FlowStepPanel
+              flowKey={activeFlowKey}
+              lang={lang}
+              t={t}
+              onAnswer={handleFlowAnswer}
+              onBack={handleFlowBack}
+            />
+          ) : (
+            <TriageCategoryPanel
+              lang={lang}
+              t={t}
+              onPickCategory={handlePickCategory}
+            />
+          )}
+        </div>
       )}
 
       <Composer
@@ -1379,6 +1411,78 @@ function DaySeparator({ label }: { label: string }) {
       >
         {label}
       </span>
+    </div>
+  );
+}
+
+/* ── Flow step (pinned above input — same as in-chat chips) ─────── */
+
+function FlowStepPanel({
+  flowKey,
+  lang,
+  t,
+  onAnswer,
+  onBack,
+}: {
+  flowKey: string;
+  lang: string;
+  t: (ru: string, en: string) => string;
+  onAnswer: (flowKey: string, opt: FlowOption) => void;
+  onBack: (currentKey: string) => void;
+}) {
+  const node = getFlowNode(flowKey);
+  if (!node) return null;
+  const parent = getFlowParent(flowKey);
+  return (
+    <div
+      style={{
+        flexShrink: 0,
+        padding: "10px 14px 8px",
+        borderTop: `1px solid ${C.border}`,
+        background: C.surface,
+      }}
+    >
+      <p style={{ margin: "0 0 10px", fontSize: 12, color: C.muted, lineHeight: 1.4 }}>
+        {t(node.q.ru, node.q.en)}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {node.options.map((opt) => (
+          <motion.button
+            key={opt.id}
+            type="button"
+            onClick={() => onAnswer(flowKey, opt)}
+            whileTap={{ scale: 0.98 }}
+            style={{
+              padding: "12px 14px",
+              borderRadius: 14,
+              border: `1px solid ${C.border}`,
+              background: C.surfaceHi,
+              color: C.text,
+              textAlign: "left",
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            {t(opt.label.ru, opt.label.en)}
+          </motion.button>
+        ))}
+        {parent && (
+          <button
+            type="button"
+            onClick={() => onBack(flowKey)}
+            style={{
+              padding: "8px",
+              background: "none",
+              border: "none",
+              color: C.muted,
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {t("← Назад", "← Back")}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

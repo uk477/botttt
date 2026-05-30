@@ -1,5 +1,6 @@
 import { getTelegramInitData } from './security'
 import { apiPath } from './apiBase'
+import { formatCryptoAmount } from './cryptoAmount'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
 
 /**
@@ -71,52 +72,57 @@ const ERC20 = {
   usdc_sol: { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },              // USDC SPL
 } as const
 
-function toUnits(amount: number, decimals: number): string {
-  // safe integer string of amount * 10^decimals (avoids float drift)
-  const [whole, frac = ''] = String(amount).split('.')
+/** Token/base units from a decimal string (no float drift). */
+function toUnits(amount: string, decimals: number): string {
+  const normalized = amount.trim().replace(',', '.')
+  const [whole, frac = ''] = normalized.split('.')
   const fracPadded = (frac + '0'.repeat(decimals)).slice(0, decimals)
-  return (BigInt(whole || '0') * BigInt(10) ** BigInt(decimals) + BigInt(fracPadded || '0')).toString()
+  return (
+    BigInt(whole || '0') * BigInt(10) ** BigInt(decimals) + BigInt(fracPadded || '0')
+  ).toString()
 }
 
 export function paymentUri(network: CryptoNetwork, address: string, amount: number): string {
   if (!address) return ''
   if (!amount || amount <= 0) return address
 
+  const amt = formatCryptoAmount(amount, network)
+
   switch (network) {
     case 'btc':
-      return `bitcoin:${address}?amount=${amount}`
+      return `bitcoin:${address}?amount=${amt}`
     case 'eth': {
-      const wei = toUnits(amount, 18)
+      const wei = toUnits(amt, 18)
       return `ethereum:${address}@1?value=${wei}`
     }
     case 'ton':
       // Trust Wallet universal link (asset c607 = TON). Открывает Trust сразу
       // на форме отправки TON; если Trust не установлен — ведёт на страницу
       // установки. Поддерживается также Tonkeeper при сканировании.
-      return `https://link.trustwallet.com/send?asset=c607&address=${address}&amount=${amount}`
+      return `https://link.trustwallet.com/send?asset=c607&address=${address}&amount=${amt}`
     case 'sol':
-      return `solana:${address}?amount=${amount}`
+      return `solana:${address}?amount=${amt}`
     case 'usdc_sol': {
       const t = ERC20.usdc_sol
-      return `solana:${address}?amount=${amount}&spl-token=${t.mint}`
+      return `solana:${address}?amount=${amt}&spl-token=${t.mint}`
     }
     case 'erc20': {
       const t = ERC20.erc20
-      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amount, t.decimals)}`
+      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amt, t.decimals)}`
     }
     case 'usdc_eth': {
       const t = ERC20.usdc_eth
-      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amount, t.decimals)}`
+      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amt, t.decimals)}`
     }
     case 'bep20': {
       const t = ERC20.bep20
-      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amount, t.decimals)}`
+      return `ethereum:${t.contract}@${t.chain}/transfer?address=${address}&uint256=${toUnits(amt, t.decimals)}`
     }
     case 'trc20': {
       const t = ERC20.trc20
       // Trust Wallet universal link для USDT-TRC20 (asset c195_t<contract>).
       // Срабатывает в Trust и TronLink; `tron:` scheme почти нигде не поддерживается.
-      return `https://link.trustwallet.com/send?asset=c195_t${t.contract}&address=${address}&amount=${amount}`
+      return `https://link.trustwallet.com/send?asset=c195_t${t.contract}&address=${address}&amount=${amt}`
     }
     default:
       return address

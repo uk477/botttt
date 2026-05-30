@@ -162,11 +162,19 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
   notifyUserTemplated(
     user.id,
     isDeposit ? "deposit_created" : "order_created",
-    {
-      amountUsd: uniqueUsd,
-      network,
-      orderId: isDeposit ? undefined : id,
-    },
+    isDeposit
+      ? {
+          amountUsd: uniqueUsd,
+          amountCrypto: amountCrypto,
+          network,
+          orderId: id,
+          walletAddress: wallet,
+        }
+      : {
+          amountUsd: uniqueUsd,
+          network,
+          orderId: id,
+        },
     user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en",
   );
 

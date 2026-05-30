@@ -125,11 +125,7 @@ export function calcCryptoAmount(usd: number, network: CryptoNetwork, rates: Liv
   }
 }
 
-export function formatCryptoAmount(amount: number, network: CryptoNetwork): string {
-  if (network === 'btc') return amount.toFixed(8)
-  if (network === 'eth' || network === 'sol' || network === 'ton') return amount.toFixed(6)
-  return amount.toFixed(2)
-}
+export { formatCryptoAmount } from '../utils/cryptoAmount'
 
 export function getCachedRates(): LiveRates | null {
   return _cache

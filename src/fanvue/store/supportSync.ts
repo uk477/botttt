@@ -48,6 +48,22 @@ export function rebuildTicketsFromMessages(messages: SupportMessage[]): SupportT
   return [...byId.values()]
 }
 
+/** Open ticket only if message history does not show it as closed. */
+export function resolveActiveTicket(
+  tickets: SupportTicket[],
+  messages: SupportMessage[],
+): SupportTicket | null {
+  for (const tk of tickets) {
+    if (tk.status === 'closed') continue
+    const closedInChat = messages.some(
+      (m) => m.kind === 'system' && m.text.startsWith(`ticket_closed:${tk.id}`),
+    )
+    if (!closedInChat) return tk
+  }
+  const rebuilt = rebuildTicketsFromMessages(messages)
+  return rebuilt.find((t) => t.status !== 'closed') ?? null
+}
+
 export function applySupportSessionPayload(
   payload: { messages?: unknown[]; tickets?: unknown[] } | null,
 ): { messages: SupportMessage[]; tickets: SupportTicket[] } | null {

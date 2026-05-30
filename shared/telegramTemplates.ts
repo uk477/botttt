@@ -15,6 +15,8 @@ export interface UserNotifyPayload {
   amountUsd?: number
   orderId?: string
   network?: string
+  walletAddress?: string
+  amountCrypto?: string | number
   productTitle?: string
   time?: string
   refId?: string
@@ -25,7 +27,8 @@ export interface UserNotifyPayload {
 
 export interface BuiltUserNotify {
   text: string
-  buttonText: string
+  /** Omit or empty string — message without inline button */
+  buttonText?: string
 }
 
 const BRAND = 'Fanvue Market'
@@ -48,6 +51,45 @@ function card(title: string, body: string, _lang: NotifyLang): string {
 }
 
 function btn(lang: NotifyLang, ru: string, en: string): string {
+  return lang === 'ru' ? ru : en
+}
+
+const SEP = '━━━━━━━━━━━━━━━━'
+
+/** Human-readable asset + network for payment notifications */
+export function formatPaymentAsset(network: string): string {
+  const n = network.toLowerCase().trim()
+  const map: Record<string, string> = {
+    trc20: 'USDT TRC20',
+    erc20: 'USDT ERC20',
+    bep20: 'USDT BEP20',
+    btc: 'BTC',
+    eth: 'ETH',
+    sol: 'SOL',
+    ton: 'TON',
+    usdc_sol: 'USDC (Solana)',
+  }
+  return map[n] ?? network.toUpperCase()
+}
+
+/** Exact crypto amount to send (matches mini-app payment screen) */
+function trimTrailingZeros(s: string): string {
+  if (!s.includes('.')) return s
+  return s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
+}
+
+export function formatPayCryptoAmount(amount: number, network: string): string {
+  const n = network.toLowerCase().trim()
+  let digits: string
+  if (n === 'btc') digits = trimTrailingZeros(amount.toFixed(8))
+  else if (n === 'eth' || n === 'sol' || n === 'ton') digits = trimTrailingZeros(amount.toFixed(6))
+  else digits = trimTrailingZeros(amount.toFixed(3))
+  const asset = formatPaymentAsset(network)
+  const symbol = asset.split(' ')[0] ?? 'USDT'
+  return `${digits} ${symbol}`
+}
+
+function fieldLabel(lang: NotifyLang, ru: string, en: string): string {
   return lang === 'ru' ? ru : en
 }
 
@@ -96,24 +138,47 @@ export function buildUserNotification(
         buttonText: btn(lang, 'Оплатить заказ', 'Pay order'),
       }
 
-    case 'deposit_created':
+    case 'deposit_created': {
+      const asset = params.network ? formatPaymentAsset(params.network) : 'USDT TRC20'
+      const body = [
+        SEP,
+        '',
+        `🪙 <b>${fieldLabel(lang, 'Сеть', 'Network')}</b>`,
+        escapeHtml(asset),
+        '',
+        params.amountCrypto != null
+          ? `💰 <b>${fieldLabel(lang, 'К оплате', 'Send exactly')}</b>\n<code>${escapeHtml(
+              typeof params.amountCrypto === 'number'
+                ? formatPayCryptoAmount(params.amountCrypto, params.network ?? 'trc20')
+                : params.amountCrypto,
+            )}</code>`
+          : params.amountUsd != null
+            ? `💰 <b>${fieldLabel(lang, 'К оплате', 'Send exactly')}</b>\n<code>${formatPayCryptoAmount(params.amountUsd, params.network ?? 'trc20')}</code>`
+            : '',
+        params.walletAddress
+          ? `\n📬 <b>${fieldLabel(lang, 'Адрес кошелька', 'Wallet address')}</b>\n<code>${escapeHtml(params.walletAddress)}</code>`
+          : '',
+        params.orderId
+          ? `\n🆔 <b>${fieldLabel(lang, 'ID заявки', 'Deposit ID')}</b>\n<code>${escapeHtml(params.orderId)}</code>`
+          : '',
+        params.amountUsd != null
+          ? `\n\n💵 ${fieldLabel(lang, 'Сумма в USD', 'USD amount')} · <b>$${params.amountUsd.toFixed(2)}</b>`
+          : '',
+        '',
+        SEP,
+        '',
+        lang === 'ru'
+          ? '<i>Переведите <b>точную сумму</b> на адрес выше. Нажмите на строку — скопируется. Баланс обновится после подтверждения в сети.</i>'
+          : '<i>Send the <b>exact amount</b> to the address above. Tap a line to copy. Balance updates after network confirmation.</i>',
+      ].filter(Boolean).join('\n')
       return {
         text: card(
           lang === 'ru' ? '💳 Депозит создан' : '💳 Deposit created',
-          [
-            params.amountUsd != null
-              ? (lang === 'ru' ? `Сумма · <b>$${params.amountUsd.toFixed(2)}</b>` : `Amount · <b>$${params.amountUsd.toFixed(2)}</b>`)
-              : '',
-            params.network ? (lang === 'ru' ? `Сеть · ${escapeHtml(params.network.toUpperCase())}` : `Network · ${escapeHtml(params.network.toUpperCase())}`) : '',
-            '',
-            lang === 'ru'
-              ? 'Переведите указанную сумму в приложении — баланс обновится автоматически после подтверждения.'
-              : 'Send the amount shown in the app — balance updates automatically after confirmation.',
-          ].filter(Boolean).join('\n'),
+          body,
           lang,
         ),
-        buttonText: btn(lang, 'Перейти к оплате', 'Continue payment'),
       }
+    }
 
     case 'payment_received':
       return {
