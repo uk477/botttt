@@ -1431,7 +1431,7 @@ body::after { display: none; }
 /* Ensure content sits above the fixed .fv-bg layer (z-index: 0).
    Without an explicit z-index, .fv-bg can paint over .scroll-area in some
    WebViews (notably Telegram on Android), hiding the entire UI. */
-.scroll-area { z-index: 1; }
+.scroll-area { z-index: 1; will-change: transform; -webkit-transform: translateZ(0); transform: translateZ(0); }
 
 .fv-bg {
   position: fixed;
@@ -1454,8 +1454,11 @@ body::after { display: none; }
 .fv-bg-glow {
   position: absolute;
   border-radius: 999px;
-  filter: blur(80px);
-  opacity: 0.22;
+  filter: blur(60px);
+  opacity: 0.18;
+  will-change: transform;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 .fv-bg-glow-a {
   width: 360px;
@@ -7722,3 +7725,9 @@ body.fv-game-open .fv-nav { display: none !important; }
 .adm2-topbar { gap: 8px; padding: 10px 12px; }
 .adm2-title { gap: 8px; flex: 1; min-width: 0; }
 .adm2-actions { gap: 6px; flex-shrink: 0; }
+
+/* ── iOS Telegram WebView performance ─────────────── */
+@supports (-webkit-touch-callout: none) {
+  .fv-bg-glow { filter: blur(40px); opacity: 0.12; }
+  .fv-bg-grid { display: none; }
+}

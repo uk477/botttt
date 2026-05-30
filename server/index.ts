@@ -118,6 +118,9 @@ app.listen(ENV.port, () => {
     .filter(([, v]) => !!v)
     .map(([k]) => k);
   console.log(`  Wallets configured: ${configuredNetworks.join(", ") || "none"}`);
+  console.log(`  ADMIN_CHAT_ID: ${ENV.adminChatId || "⚠️  NOT SET"}`);
+  console.log(`  WEBAPP_URL: ${ENV.webAppUrl || "⚠️  NOT SET"}`);
+  console.log(`  NOTIFY_GROUP_ID: ${ENV.notifyGroupId || "not set"}`);
   console.log();
 
   startPoller();

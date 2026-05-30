@@ -49,6 +49,20 @@ router.get("/api/admin/users", (req: Request, res: Response) => {
   res.json([]);
 });
 
+router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const uid = Number(req.params.uid);
+  if (!uid || isNaN(uid)) { res.status(400).json({ error: "Invalid uid" }); return; }
+  const { amount } = req.body as { amount?: number };
+  if (!amount || typeof amount !== "number" || amount <= 0 || amount > 100000) {
+    res.status(400).json({ error: "Invalid amount" }); return;
+  }
+  const user = users.get(uid);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  const updated = users.credit(uid, amount);
+  res.json({ ok: true, balance: updated?.balance ?? 0 });
+});
+
 // ── Admin Settings (wallet addresses, ref withdraw networks, site config) ──
 router.get("/api/admin/settings", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;

@@ -510,7 +510,7 @@ export default function RefCalendar() {
           </AnimatePresence>
         </motion.div>
 
-        <div style={{ height: 24 }} />
+        <div style={{ height: 120 }} />
       </div>
     </PageTransition>
   )

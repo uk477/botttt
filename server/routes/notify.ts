@@ -11,7 +11,7 @@ const notifyLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.post("/api/notify", notifyLimiter, (req: Request, res: Response) => {
+router.post("/api/notify", notifyLimiter, async (req: Request, res: Response) => {
   const initData =
     (req.headers["x-telegram-init-data"] as string) || req.body?.initData || "";
 
@@ -40,16 +40,16 @@ router.post("/api/notify", notifyLimiter, (req: Request, res: Response) => {
       res.status(400).json({ error: "Invalid chatId" });
       return;
     }
-    if (buttonText) {
-      notifyUserWithButton(chatId, text, buttonText);
-    } else {
-      notifyUser(chatId, text);
-    }
+    const ok = buttonText
+      ? await notifyUserWithButton(chatId, text, buttonText)
+      : await notifyUser(chatId, text);
+    console.log(`[notify] user chatId=${chatId} ok=${ok}`);
+    res.json({ ok });
   } else {
-    notifyAdmin(text);
+    const ok = await notifyAdmin(text);
+    console.log(`[notify] admin ok=${ok}`);
+    res.json({ ok });
   }
-
-  res.json({ ok: true });
 });
 
 export default router;
