@@ -58,30 +58,19 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
 
           const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 
+          const isDeposit = order.kind === "deposit";
+
           notifyAdmin(
-            `✅ <b>Оплата подтверждена</b>\n\n` +
-              `🆔 Заказ: <code>${order.id}</code>\n` +
-              `💵 Сумма: $${order.amount_usd}\n` +
-              `🌐 Сеть: ${order.network.toUpperCase()}\n` +
-              `🔗 TX: <code>${tx.tx_hash.slice(0, 16)}…</code>\n` +
-              `👤 UID: ${order.uid}\n` +
-              `🕐 ${time}`,
+            isDeposit
+              ? `<b>Депозит подтверждён</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}\n<code>${tx.tx_hash.slice(0, 16)}…</code>`
+              : `<b>Оплата подтверждена</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}\n<code>${tx.tx_hash.slice(0, 16)}…</code>`,
           );
 
-          const isDeposit = order.kind === "deposit";
           notifyUserWithButton(
             order.uid,
             isDeposit
-              ? `✅ <b>Депозит зачислен</b>\n\n` +
-                `💵 Сумма: <b>$${order.amount_usd}</b>\n` +
-                `🆔 Номер: <code>${order.id}</code>\n` +
-                `🕐 ${time}\n\n` +
-                `Средства уже на вашем балансе.`
-              : `✅ <b>Оплата получена</b>\n\n` +
-                `💵 Сумма: <b>$${order.amount_usd}</b>\n` +
-                `🆔 Заказ: <code>${order.id}</code>\n` +
-                `🕐 ${time}\n\n` +
-                `Ваш заказ принят в обработку.`,
+              ? `<b>Депозит зачислен</b>\n\n<b>$${order.amount_usd}</b> уже на вашем балансе.\n${time}`
+              : `<b>Оплата получена</b>\n\nЗаказ <code>${order.id}</code> на сумму <b>$${order.amount_usd}</b> оплачен.\nМы начали обработку. ${time}`,
             isDeposit ? "Открыть баланс" : "Посмотреть заказ",
           );
         }

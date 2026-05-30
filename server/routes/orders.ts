@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyAdmin } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyAdmin, notifyUserWithButton } from "../telegram.js";
 import { orders } from "../db.js";
 import { ENV } from "../env.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
@@ -128,11 +128,21 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
   );
 
   const userName = user.username ? `@${user.username}` : user.first_name;
+  const isDeposit = kind === "deposit";
+  const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
+
   notifyAdmin(
-    `🆕 <b>New ${kind === "deposit" ? "deposit" : "order"}</b>\n` +
-      `👤 ${userName} (ID: ${user.id})\n` +
-      `💵 $${uniqueUsd.toFixed(2)} · ${network.toUpperCase()}\n` +
-      `🆔 <code>${id}</code>`,
+    isDeposit
+      ? `<b>Новый депозит</b>\n\n${userName} · $${uniqueUsd.toFixed(2)}\n${network.toUpperCase()} · ${time}\n<code>${id}</code>`
+      : `<b>Новый заказ</b>\n\n${userName} · $${uniqueUsd.toFixed(2)}\n${network.toUpperCase()} · ${time}\n<code>${id}</code>`,
+  );
+
+  notifyUserWithButton(
+    user.id,
+    isDeposit
+      ? `<b>Депозит создан</b>\n\nСумма: <b>$${uniqueUsd.toFixed(2)}</b>\nСеть: ${network.toUpperCase()}\n\nПереведите указанную сумму на адрес в приложении. После подтверждения сети средства зачислятся автоматически.`
+      : `<b>Заказ оформлен</b>\n\nСумма: <b>$${uniqueUsd.toFixed(2)}</b>\nСеть: ${network.toUpperCase()}\nНомер: <code>${id}</code>\n\nОплатите заказ в приложении. После подтверждения оплаты мы начнём обработку.`,
+    isDeposit ? "Перейти к оплате" : "Оплатить заказ",
   );
 
   res.json({

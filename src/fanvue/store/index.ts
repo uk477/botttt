@@ -304,7 +304,7 @@ export const useStore = create<AppStore>()(
             set({
               user: localUser,
               lang: state.langUserSet ? state.lang : detectedLang,
-              langUserSet: state.langUserSet || true,
+              langUserSet: state.langUserSet,
               isLoading: false,
             })
 

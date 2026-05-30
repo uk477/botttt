@@ -217,7 +217,7 @@ export default function AdminSupport() {
     if (openUid) {
       notifyUserWithButton(
         openUid,
-        `<b>Поддержка ${CONFIG.brandName}</b>\n\nВам ответили на обращение.`,
+        `<b>Ответ от поддержки</b>\n\nВаше обращение рассмотрено. Ответ доступен в приложении.`,
         'Посмотреть ответ',
       )
     }
@@ -252,16 +252,12 @@ export default function AdminSupport() {
     if (openUid) {
       notifyUserWithButton(
         openUid,
-        `<b>Заказ выдан</b>\n\n` +
-          `📦 ${chatOrder.product_title ?? 'Товар'}\n` +
-          `💵 $${chatOrder.amount.toFixed(2)}\n` +
-          `🆔 <code>${chatOrder.id}</code>\n` +
-          `🕐 ${time}`,
+        `<b>Заказ выдан</b>\n\n${chatOrder.product_title ?? 'Товар'} · $${chatOrder.amount.toFixed(2)}\n\nДанные для доступа уже в приложении.`,
         'Открыть заказ',
       )
     }
     notifyAdmin(
-      `📦 Заказ выдан\n🆔 ${chatOrder.id}\n👤 UID: ${openUid ?? '—'}\n💵 $${chatOrder.amount.toFixed(2)}\n🕐 ${time}`,
+      `<b>Выдача</b>\n\n${chatOrder.product_title ?? 'Товар'} · $${chatOrder.amount.toFixed(2)}\nUID: ${openUid ?? '—'} · ${time}`,
     )
   }
 
