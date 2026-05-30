@@ -90,6 +90,13 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime() });
 });
 
+// ── Test notification (admin only, for debugging) ───────────────────
+app.get("/api/test-notify", async (_req, res) => {
+  const { notifyAdmin } = await import("./telegram.js");
+  const ok = await notifyAdmin("✅ Тестовое уведомление — если видишь это, уведомления работают!");
+  res.json({ ok, adminChatId: ENV.adminChatId, botTokenSet: !!ENV.botToken, webAppUrl: ENV.webAppUrl });
+});
+
 // ── Serve static SPA from dist/ ─────────────────────────────────────
 app.use(
   express.static(DIST, {
