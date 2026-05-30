@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        VITE_ADMIN_IDS: ${VITE_ADMIN_IDS:-}
+        VITE_ADMIN_HASHES: ${VITE_ADMIN_HASHES:-}
+        VITE_ADDR_TRC20: ${VITE_ADDR_TRC20:-}
+        VITE_ADDR_ERC20: ${VITE_ADDR_ERC20:-}
+        VITE_ADDR_BEP20: ${VITE_ADDR_BEP20:-}
+        VITE_ADDR_ETH: ${VITE_ADDR_ETH:-}
+        VITE_ADDR_SOL: ${VITE_ADDR_SOL:-}
+        VITE_ADDR_BTC: ${VITE_ADDR_BTC:-}
+        VITE_ADDR_USDC_ETH: ${VITE_ADDR_USDC_ETH:-}
+        VITE_ADDR_USDC_SOL: ${VITE_ADDR_USDC_SOL:-}
+        VITE_ADDR_TON: ${VITE_ADDR_TON:-}
+    image: krivko-app:latest
+    container_name: krivko-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SQLITE_DB_PATH=/app/data/orders.db
+    volumes:
+      - ./data:/app/data
+    # Подключаемся к существующей сети loveshop-стека.
+    # Reverse proxy (loveshop-proxy-1) будет ходить сюда по имени krivko-app:3000.
+    networks:
+      - loveshop_default
+
+networks:
+  loveshop_default:
+    external: true

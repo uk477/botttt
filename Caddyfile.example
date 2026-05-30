@@ -1,0 +1,14 @@
+# Замени YOUR_DOMAIN.com на свой домен (например shop.example.com).
+# Caddy автоматически получит HTTPS-сертификат от Let's Encrypt.
+# Убедись, что порты 80 и 443 открыты в файрволе сервера.
+# В docker-compose сервис приложения называется "app" и слушает порт 3000.
+
+YOUR_DOMAIN.com {
+    reverse_proxy app:3000
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}
