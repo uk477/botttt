@@ -14,9 +14,17 @@ const VALID_NETWORKS = new Set([
   "trc20", "erc20", "bep20", "eth", "sol", "btc", "usdc_eth", "usdc_sol", "ton",
 ]);
 
-const orderLimiter = rateLimit({
+const orderCreateLimiter = rateLimit({
   windowMs: 60_000,
-  max: 5,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many orders, try again in a minute" },
+});
+
+const orderCancelLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -73,7 +81,7 @@ function generateOrderId(kind: "buy" | "deposit" = "buy"): string {
 
 // ── POST /api/order — create a new order ────────────────────────────
 
-router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
+router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response) => {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) {
@@ -173,7 +181,7 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
 
 // ── POST /api/purchase/balance — pay for product from account balance ─
 
-router.post("/api/purchase/balance", orderLimiter, (req: Request, res: Response) => {
+router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Response) => {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) {
@@ -316,7 +324,7 @@ router.post("/api/purchase/balance", orderLimiter, (req: Request, res: Response)
 
 // ── POST /api/order/:id/cancel — cancel own pending order ───────────
 
-router.post("/api/order/:id/cancel", orderLimiter, (req: Request, res: Response) => {
+router.post("/api/order/:id/cancel", orderCancelLimiter, (req: Request, res: Response) => {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) {

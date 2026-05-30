@@ -14,7 +14,7 @@ import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount, p
 import { useCryptoRates, calcCryptoAmount, formatCryptoAmount } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
 import { track } from '../utils/analytics'
-import { rateLimit, isValidAmount, audit } from '../utils/security'
+import { rateLimit, rateLimitUndo, isValidAmount, audit } from '../utils/security'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
 
 type Step = 'amount' | 'network' | 'pay' | 'success'
@@ -95,10 +95,16 @@ export default function Deposit() {
   const amountOk = numAmount >= 1
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === network)
 
-  const cancelDeposit = () => {
+  const removeNotification = useStore((s) => s.removeNotification)
+  const refreshUser = useStore((s) => s.refreshUser)
+
+  const cancelDeposit = async () => {
     if (!pendingOrder) return
-    if (api.isEnabled()) void api.cancelOrder(pendingOrder.id)
+    if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
     setOrderStatus(pendingOrder.id, 'failed')
+    removeNotification(pendingOrder.id)
+    setPendingOrder(null)
+    void refreshUser()
     tgNotify(`❌ Депозит отменён\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n💵 $${pendingOrder.uniqueAmount.toFixed(2)} · ${network?.toUpperCase()}\n🆔 ${pendingOrder.id}`)
   }
 
@@ -114,16 +120,17 @@ export default function Deposit() {
       toast.show(lang === 'ru' ? 'Некорректная сумма' : 'Invalid amount', 'error')
       return
     }
-    if (!rateLimit('deposit', 5, 60_000)) {
-      toast.show(lang === 'ru' ? 'Подождите перед следующим депозитом' : 'Wait before next deposit', 'error')
+    if (!rateLimit('deposit', 12, 60_000)) {
+      toast.show(lang === 'ru' ? 'Подождите минуту перед новым счётом' : 'Wait a minute before creating another invoice', 'error')
       return
     }
     setCreating(true)
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
-    cancelPendingDeposits(network)
+    cancelPendingDeposits()
     const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
     if (api.isEnabled() && !result.ok) {
+      rateLimitUndo('deposit')
       setCreating(false)
       toast.show(formatOrderError(result.code, result.message, lang), 'error')
       return

@@ -145,6 +145,12 @@ export function rateLimit(
   return true
 }
 
+/** Undo one consume when an API call failed after the client limiter ran. */
+export function rateLimitUndo(key: string): void {
+  const bucket = _buckets.get(key)
+  if (bucket && bucket.count > 0) bucket.count--
+}
+
 // ── Financial operation nonces ────────────────────────────────
 // Prevents replay of financial mutations. Each op consumes a nonce.
 

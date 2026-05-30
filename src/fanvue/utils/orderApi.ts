@@ -44,6 +44,11 @@ export function formatOrderError(code: string, message: string, lang: 'ru' | 'en
       ? 'Сессия Telegram не подтверждена. Закройте и откройте мини-апп из бота.'
       : 'Telegram session invalid. Close and reopen the mini-app from the bot.'
   }
+  if (code === 'rate_limit') {
+    return lang === 'ru'
+      ? 'Слишком много запросов. Подождите 1 минуту и попробуйте снова.'
+      : 'Too many requests. Wait 1 minute and try again.'
+  }
   if (code === 'network') {
     return lang === 'ru'
       ? `Нет связи с сервером. ${message}`
@@ -79,6 +84,13 @@ export async function createOrder(payload: {
 
     if (res.status === 401) {
       return { ok: false, code: 'unauthorized', message: await readErrorMessage(res) }
+    }
+    if (res.status === 429) {
+      return {
+        ok: false,
+        code: 'rate_limit',
+        message: await readErrorMessage(res),
+      }
     }
     if (res.status === 503) {
       return { ok: false, code: 'maintenance', message: await readErrorMessage(res) }

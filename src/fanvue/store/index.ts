@@ -218,7 +218,7 @@ interface AppStore {
   completeRefWithdrawal: (id: string, txid: string) => void
   checkAndResetMonthlyReward: () => void
   logDailyRef: (date: string, count?: number) => void
-  cancelPendingDeposits: (exceptNetwork?: string) => void
+  cancelPendingDeposits: () => void
 
   // Admin actions
   setCryptoAddress: (network: CryptoNetwork, address: string) => void
@@ -770,16 +770,16 @@ export const useStore = create<AppStore>()(
           return {}
         }),
 
-      cancelPendingDeposits: (exceptNetwork?: string) => {
+      cancelPendingDeposits: () => {
         const pending = get().orders.filter(
-          (o) => o.kind === 'deposit' && o.status === 'pending' && o.provider !== exceptNetwork,
+          (o) => o.kind === 'deposit' && o.status === 'pending',
         )
         if (api.isEnabled()) {
           for (const o of pending) void api.cancelOrder(o.id)
         }
         set((s) => ({
           orders: s.orders.map((o) =>
-            o.kind === 'deposit' && o.status === 'pending' && o.provider !== exceptNetwork
+            o.kind === 'deposit' && o.status === 'pending'
               ? { ...o, status: 'failed' as const }
               : o
           ),
