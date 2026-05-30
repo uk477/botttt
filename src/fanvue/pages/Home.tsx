@@ -51,23 +51,27 @@ export default function Home() {
 
   const online = useMemo(() => getOnline(new Date(now)), [now])
   const recentSales = useMemo(() => {
-    const fakes = getRecentSales(3, new Date(now))
-    const merged = [
-      ...realSales.map((s) => {
-        const h = ((s.uid * 2654435761) >>> 0).toString(16).toUpperCase().slice(0, 4)
-        return {
-          buyerId: `real-${s.uid}`,
-          handle: h,
-          avatar: `https://api.dicebear.com/9.x/avataaars/svg?seed=real${s.uid}&radius=50`,
-          productIndex: s.productIndex,
-          ts: s.ts,
-        }
-      }),
-      ...fakes,
-    ]
+    const fakes = getRecentSales(5, new Date(now))
+    const reals = realSales.map((s) => {
+      const h = ((s.uid * 2654435761) >>> 0).toString(16).toUpperCase().slice(0, 4)
+      return {
+        buyerId: `real-${s.uid}`,
+        handle: h,
+        avatar: `https://api.dicebear.com/9.x/avataaars/svg?seed=real${s.uid}&radius=50`,
+        productIndex: s.productIndex,
+        ts: s.ts,
+      }
+    })
+    const seen = new Set<string>()
+    return [...reals, ...fakes]
       .sort((a, b) => b.ts - a.ts)
+      .filter((s) => {
+        const k = `${s.handle}-${s.ts}`
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
       .slice(0, 5)
-    return merged
   }, [now, realSales])
   const totalSales = useMemo(() => getTotalSales(new Date(now)) + orders.length, [now, orders.length])
 
