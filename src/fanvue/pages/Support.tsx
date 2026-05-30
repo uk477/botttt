@@ -739,7 +739,16 @@ export default function Support() {
       created: new Date().toISOString(),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTicket?.id, messages.length]);
+  }, [activeTicket?.id, messages.length, lang]);
+
+  // Rebuild triage UI when language changes (avoid stale RU chips on EN)
+  useEffect(() => {
+    if (activeTicket || hasOpenOrder) return
+    triagePromptQueuedRef.current = false
+    useStore.setState((s) => ({
+      supportMessages: s.supportMessages.filter((m) => !isTransientFlowMessage(m)),
+    }))
+  }, [lang, activeTicket?.id, hasOpenOrder]);
 
   const botMessage = (text: string, ticketId = FLOW_TAG): SupportMessage => ({
     id: newId(),

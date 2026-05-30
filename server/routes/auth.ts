@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin } from "../telegram.js";
-import { users } from "../db.js";
+import { users, settings } from "../db.js";
 
 const router = Router();
 
@@ -28,6 +28,10 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
     full_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
   });
 
+  const storedLang = settings.get(`user_lang:${user.id}`);
+  const preferred_lang =
+    storedLang === "ru" || storedLang === "en" ? storedLang : null;
+
   res.json({
     uid: user.id,
     first_name: user.first_name,
@@ -35,6 +39,7 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
     username: user.username ?? "",
     photo_url: user.photo_url ?? "",
     language_code: user.language_code ?? "en",
+    preferred_lang,
     isAdmin: isAdmin(user.id),
     balance: row.balance,
     spent: row.spent,
@@ -63,6 +68,26 @@ router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
 
   const row = users.credit(uid, amount);
   res.json({ ok: true, uid: row.uid, balance: row.balance });
+});
+
+router.post("/api/user/lang", authLimiter, (req: Request, res: Response) => {
+  const initData =
+    (req.headers["x-telegram-init-data"] as string) || req.body?.initData || "";
+
+  const user = verifyInitData(initData);
+  if (!user) {
+    res.status(401).json({ error: "Invalid Telegram initData" });
+    return;
+  }
+
+  const lang = req.body?.lang;
+  if (lang !== "ru" && lang !== "en") {
+    res.status(400).json({ error: "Invalid lang" });
+    return;
+  }
+
+  settings.set(`user_lang:${user.id}`, lang);
+  res.json({ ok: true, lang });
 });
 
 export default router;

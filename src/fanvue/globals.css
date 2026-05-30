@@ -469,6 +469,16 @@ input:focus, textarea:focus, select:focus {
 }
 .welcome-photo img { width: 100%; display: block; }
 
+/* Support chat — full viewport inside no-nav scroll area */
+.fv-support-chat-shell {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 /* ─── ONBOARDING (premium /start in-app) ─────────────── */
 .fv-onboard {
   position: fixed;

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { ENV } from "../env.js";
+import { settings, users } from "../db.js";
 import {
   sendMessageWithKeyboard,
   editMessageText,
@@ -52,7 +53,15 @@ router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
     };
 
     if (update.message?.text?.startsWith("/start")) {
-      const lang = detectLang(update.message.from?.language_code);
+      const from = update.message.from;
+      const lang = detectLang(from?.language_code);
+      if (from?.id) {
+        users.upsert({
+          uid: from.id,
+          username: from.username ?? null,
+          full_name: [from.first_name, from.last_name].filter(Boolean).join(" ") || null,
+        });
+      }
       await sendMessageWithKeyboard(
         update.message.chat.id,
         WELCOME[lang],
@@ -64,6 +73,14 @@ router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
     if (update.callback_query?.data?.startsWith("lang:")) {
       const cb = update.callback_query;
       const lang: Lang = cb.data === "lang:ru" ? "ru" : "en";
+      if (cb.from?.id) {
+        settings.set(`user_lang:${cb.from.id}`, lang);
+        users.upsert({
+          uid: cb.from.id,
+          username: cb.from.username ?? null,
+          full_name: [cb.from.first_name, cb.from.last_name].filter(Boolean).join(" ") || null,
+        });
+      }
       await answerCallbackQuery(cb.id, lang === "ru" ? "Язык: русский" : "Language: English");
       if (cb.message) {
         await editMessageText(

@@ -276,7 +276,10 @@ export const useStore = create<AppStore>()(
         securityInstructionUrl: CONFIG.securityInstructionUrl,
       },
 
-      setLang: (lang) => set({ lang, langUserSet: true }),
+      setLang: (lang) => {
+        set({ lang, langUserSet: true })
+        if (api.isEnabled()) api.setUserLang(lang)
+      },
 
       initUser: () => {
         // one-time dedupe of any legacy duplicate stickHero scores
@@ -296,11 +299,19 @@ export const useStore = create<AppStore>()(
         }
         try {
           type TGUser = { id?: number; username?: string; first_name?: string; last_name?: string; language_code?: string; photo_url?: string }
-          const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser } } } }).Telegram?.WebApp
+          const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser; start_param?: string } } } }).Telegram?.WebApp
           const tgUser = tg?.initDataUnsafe?.user
+          const startParam = tg?.initDataUnsafe?.start_param ?? ''
           const state = get()
+          const langFromStart =
+            startParam === 'en' || startParam === 'lang_en' ? 'en' as const
+            : startParam === 'ru' || startParam === 'lang_ru' ? 'ru' as const
+            : null
           if (tgUser) {
             const detectedLang: Lang = tgUser.language_code?.startsWith('ru') ? 'ru' : 'en'
+            const initialLang: Lang = state.langUserSet
+              ? state.lang
+              : (langFromStart ?? detectedLang)
             const uid = tgUser.id ?? state.user?.uid ?? MOCK_USER.uid
             const samePersistedUser = state.user?.uid === uid ? state.user : null
             const localUser: User = {
@@ -313,7 +324,7 @@ export const useStore = create<AppStore>()(
             }
             set({
               user: localUser,
-              lang: state.langUserSet ? state.lang : detectedLang,
+              lang: initialLang,
               langUserSet: state.langUserSet,
               isLoading: false,
             })
@@ -327,9 +338,18 @@ export const useStore = create<AppStore>()(
 
             // sync with server when API is enabled
             if (api.isEnabled()) {
+              api.getAppConfig().then((cfg) => {
+                if (cfg && typeof cfg.maintenance === 'boolean') {
+                  set({ maintenance: cfg.maintenance })
+                }
+              })
               api.auth({}).then((serverUser) => {
                 if (serverUser && typeof serverUser === 'object') {
                   const u = serverUser as Record<string, unknown>
+                  const pref = u.preferred_lang
+                  if (!get().langUserSet && (pref === 'ru' || pref === 'en')) {
+                    set({ lang: pref as Lang })
+                  }
                   // If server reports isAdmin, trust it over local hash
                   const serverIsAdmin = u.isAdmin === true
                   if (serverIsAdmin) {

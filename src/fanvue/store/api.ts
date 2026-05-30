@@ -71,6 +71,8 @@ const del  = <T>(path: string)              => req<T>('DELETE', path)
 export const api = {
   isEnabled: () => !!base,
 
+  getAppConfig:   ()                 => get<{ maintenance?: boolean }>('/api/config/app'),
+  setUserLang:    (lang: 'ru' | 'en') => post('/api/user/lang', { lang }),
   auth:           (b: object)        => post('/api/auth', b),
   getUser:        (uid: number)      => get(`/api/user/${uid}`),
   getProducts:    ()                 => get<{ products: unknown[]; categories: unknown[]; pinned: number[] }>('/api/products'),

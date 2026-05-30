@@ -43,14 +43,8 @@ function truncate(s: string, max: number): string {
   return t.slice(0, max - 1) + '…'
 }
 
-function footer(lang: NotifyLang): string {
-  return lang === 'ru'
-    ? `\n<i>${BRAND} · откройте мини-приложение для деталей</i>`
-    : `\n<i>${BRAND} · open the mini app for details</i>`
-}
-
-function card(title: string, body: string, lang: NotifyLang): string {
-  return `${title}\n\n${body}${footer(lang)}`
+function card(title: string, body: string, _lang: NotifyLang): string {
+  return `${title}\n\n${body}`
 }
 
 function btn(lang: NotifyLang, ru: string, en: string): string {
