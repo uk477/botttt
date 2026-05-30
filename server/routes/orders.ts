@@ -200,7 +200,7 @@ router.get("/api/orders", (req: Request, res: Response) => {
     return;
   }
   orders.expireOld();
-  res.json(orders.getByUid(user.id));
+  res.json({ orders: orders.getByUid(user.id) });
 });
 
 export default router;

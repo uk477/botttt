@@ -4299,8 +4299,8 @@ body.fv-game-open .fv-nav { display: none !important; }
 .hist-sheet {
   width: 100%;
   max-width: 480px;
-  max-height: 92vh;
-  max-height: 92dvh;
+  max-height: 85vh;
+  max-height: 85dvh;
   display: flex; flex-direction: column;
   background: linear-gradient(180deg, #0d100c 0%, #050605 100%);
   border-top: 1px solid rgba(57,255,99,0.18);

@@ -42,7 +42,7 @@ function buildMonthGrid(viewMonth: Date) {
 }
 
 export default function SalesHistorySheet({ open, onClose, lang, productTitle }: Props) {
-  const today = mskNow()
+  const [today] = useState(() => mskNow())
   const [selected, setSelected] = useState<Date>(today)
   const [viewMonth, setViewMonth] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1))
 
@@ -52,7 +52,8 @@ export default function SalesHistorySheet({ open, onClose, lang, productTitle }:
     if (sameDay(selected, today)) return getSalesToday(today)
     if (selected.getTime() > today.getTime()) return []
     return generateSalesForDay(selected)
-  }, [selected, today])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
 
   const monthName = (lang === 'ru' ? MONTHS_RU : MONTHS_EN)[viewMonth.getMonth()]
   const week = lang === 'ru' ? WEEK_RU : WEEK_EN
