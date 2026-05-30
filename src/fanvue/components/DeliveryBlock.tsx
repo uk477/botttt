@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { useToast } from './Toast'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
+import { normalizeTelegramUrl } from '../utils/telegramLink'
 import fanvueLogoUrl from '../assets/fanvue-logo.png'
 import { Mail, ShieldCheck, ArrowUpRight, Copy } from 'lucide-react'
 
@@ -389,8 +390,9 @@ export default function DeliveryBlock({ data, orderId }: { data: string; orderId
   const { haptic } = useTelegram()
   const navigate = useNavigate()
   const parsed = useMemo(() => parseCreds(data), [data])
-  const tgUrl = `https://t.me/${CONFIG.supportUsername}`
-  const savedSecurityUrl = useStore((s) => s.siteLinks?.securityInstructionUrl)
+  const siteLinks = useStore((s) => s.siteLinks)
+  const tgUrl = normalizeTelegramUrl(siteLinks.supportUrl) || normalizeTelegramUrl(`@${CONFIG.supportUsername}`)
+  const savedSecurityUrl = siteLinks?.securityInstructionUrl
   const securityUrl = normalizeExternalUrl(parsed.instructions[0]) || normalizeExternalUrl(savedSecurityUrl) || normalizeExternalUrl(CONFIG.securityInstructionUrl)
 
   const hasAnyParsed =
@@ -537,7 +539,8 @@ export function ManualDeliveryBlock({
   const { haptic } = useTelegram()
   const navigate = useNavigate()
   const sendOrderReceipt = useStore((s) => s.sendOrderReceipt)
-  const tgUrl = `https://t.me/${CONFIG.supportUsername}`
+  const siteLinks = useStore((s) => s.siteLinks)
+  const tgUrl = normalizeTelegramUrl(siteLinks.supportUrl) || normalizeTelegramUrl(`@${CONFIG.supportUsername}`)
   const isVerification = isVerificationProduct(productTitle)
 
   const copyId = async () => {

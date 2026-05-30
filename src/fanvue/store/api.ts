@@ -71,7 +71,7 @@ const del  = <T>(path: string)              => req<T>('DELETE', path)
 export const api = {
   isEnabled: () => !!base,
 
-  getAppConfig:   ()                 => get<{ maintenance?: boolean }>('/api/config/app'),
+  getAppConfig:   ()                 => get<import('./storeConfigSync').PublicStoreConfig>('/api/config/app'),
   setUserLang:    (lang: 'ru' | 'en') => post('/api/user/lang', { lang }),
   auth:           (b: object)        => post('/api/auth', b),
   getUser:        (uid: number)      => get(`/api/user/${uid}`),
@@ -95,7 +95,7 @@ export const api = {
   adminReply:            (uid: number, text: string, lang?: 'ru' | 'en') =>
     post(`/api/admin/support/${uid}`, { text, lang }),
   adminGetSettings:      ()                        => get('/api/admin/settings'),
-  adminSetSettings:      (b: object)               => post('/api/admin/settings', b),
+  adminSetSettings:      (b: object)               => post<{ ok: boolean }>('/api/admin/settings', b),
   adminGetProducts:      ()                        => get<{ products: unknown[]; categories: unknown[]; pinned: number[] }>('/api/admin/products'),
   adminUpsertProduct:    (b: object)               => post('/api/admin/product', b),
   adminDeleteProduct:    (id: number)              => del(`/api/admin/product/${id}`),

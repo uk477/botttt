@@ -7,6 +7,7 @@ import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from '../components/Toast'
 import { CONFIG } from '../config'
+import { botReferralLink } from '../utils/telegramLink'
 import fanvueGlyph from '../../assets/fanvue-glyph.png'
 
 const GREEN = '#39FF63'
@@ -29,6 +30,7 @@ export default function Profile() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang) as 'ru' | 'en'
   const user = useStore((s) => s.user)
+  const siteLinks = useStore((s) => s.siteLinks)
   const supportUnread = useStore((s) => s.supportUnread)
   const adminVerified = useStore((s) => s._adminVerified)
   const { haptic } = useTelegram()
@@ -40,7 +42,7 @@ export default function Profile() {
 
   if (!user) return null
 
-  const refLink = `https://t.me/${CONFIG.botUsername}?start=ref${user.uid}`
+  const refLink = botReferralLink(siteLinks.botUrl, user.uid, CONFIG.botUsername)
   const [whole, cents] = user.balance.toFixed(2).split('.')
   const canWithdraw = user.ref_balance >= 10
 

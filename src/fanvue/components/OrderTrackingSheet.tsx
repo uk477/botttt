@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
+import { openTelegramWithText } from '../utils/telegramLink'
 import type { Order } from '../store/types'
 
 interface Props {
@@ -97,6 +98,7 @@ function StatusBar({ status }: { status: Order['status'] }) {
 export default function OrderTrackingSheet({ order, onClose }: Props) {
   const navigate            = useNavigate()
   const lang                = useStore((s) => s.lang)
+  const siteLinks           = useStore((s) => s.siteLinks)
   const addMsg              = useStore((s) => s.addSupportMessage)
   const forwarded           = useStore((s) => s.supportForwardedOrders)
   const markOrderForwarded  = useStore((s) => s.markOrderForwarded)
@@ -143,7 +145,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
 
   function handleTelegram() {
     haptic('light')
-    window.open(`https://t.me/${CONFIG.adminUsername}?text=${encodeURIComponent(supportMsg)}`, '_blank')
+    openTelegramWithText(siteLinks.adminUrl, supportMsg, CONFIG.adminUsername)
     onClose()
   }
 

@@ -4,6 +4,7 @@ import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
+import { openTelegramUrl } from '../utils/telegramLink'
 
 /**
  * SUPPORT HUB
@@ -34,6 +35,7 @@ function TelegramMark({ size = 38 }: { size?: number }) {
 export default function SupportHub() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
+  const siteLinks = useStore((s) => s.siteLinks)
   const { haptic } = useTelegram()
   const supportUnread = useStore((s) => s.supportUnread)
   const messagesCount = useStore((s) => s.supportMessages.length)
@@ -43,7 +45,7 @@ export default function SupportHub() {
   const openChat = () => { haptic('medium'); navigate('/support/chat') }
   const openTg = () => {
     haptic('medium')
-    window.open(`https://t.me/${CONFIG.supportUsername}`, '_blank')
+    openTelegramUrl(siteLinks.supportUrl, CONFIG.supportUsername)
   }
 
   return (

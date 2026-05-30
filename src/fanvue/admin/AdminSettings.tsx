@@ -25,14 +25,28 @@ function LinkRow({ field }: { field: typeof LINK_FIELDS[number] }) {
   const lang     = useStore((s) => s.lang)
   const links    = useStore((s) => s.siteLinks)
   const setLink  = useStore((s) => s.setSiteLink)
+  const persist  = useStore((s) => s.persistAdminSettings)
   const toast    = useToast()
   const { haptic } = useTelegram()
   const [value, setValue] = useState(links[field.key])
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const save = () => {
+  useEffect(() => {
+    setValue(links[field.key])
+  }, [links[field.key], field.key])
+
+  const save = async () => {
+    setSaving(true)
     setLink(field.key, value.trim())
-    toast.show(lang === 'ru' ? 'Ссылка сохранена' : 'Link saved', 'success')
+    const ok = await persist({ siteLinks: useStore.getState().siteLinks })
+    setSaving(false)
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не удалось сохранить на сервер' : 'Failed to save to server', 'error')
+      haptic('error')
+      return
+    }
+    toast.show(lang === 'ru' ? 'Ссылка сохранена для всех' : 'Link saved for everyone', 'success')
     haptic('success')
     setEditing(false)
   }
@@ -50,8 +64,8 @@ function LinkRow({ field }: { field: typeof LINK_FIELDS[number] }) {
             style={{ fontSize: 12, fontFamily: 'monospace' }}
           />
           <div className="row gap-2">
-            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save}>
-              {lang === 'ru' ? 'Сохранить' : 'Save'}
+            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save} disabled={saving}>
+              {saving ? (lang === 'ru' ? 'Сохранение…' : 'Saving…') : (lang === 'ru' ? 'Сохранить' : 'Save')}
             </button>
             <button type="button" className="adm-btn adm-btn--sm" style={{ flex: 1 }} onClick={() => { setValue(links[field.key]); setEditing(false) }}>
               {lang === 'ru' ? 'Отмена' : 'Cancel'}
@@ -77,6 +91,7 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
   const lang = useStore((s) => s.lang)
   const addresses = useStore((s) => s.cryptoAddresses)
   const setAddress = useStore((s) => s.setCryptoAddress)
+  const persist = useStore((s) => s.persistAdminSettings)
   const qrOverrides = useStore((s) => s.qrOverrides)
   const setQrOverride = useStore((s) => s.setQrOverride)
   const toast = useToast()
@@ -84,10 +99,23 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(addresses[network.id])
+  const [saving, setSaving] = useState(false)
 
-  const save = () => {
+  useEffect(() => {
+    setValue(addresses[network.id] ?? '')
+  }, [addresses[network.id], network.id])
+
+  const save = async () => {
+    setSaving(true)
     setAddress(network.id, value.trim())
-    toast.show(lang === 'ru' ? 'Адрес сохранён' : 'Address saved', 'success')
+    const ok = await persist({ addresses: useStore.getState().cryptoAddresses })
+    setSaving(false)
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не удалось сохранить на сервер' : 'Failed to save to server', 'error')
+      haptic('error')
+      return
+    }
+    toast.show(lang === 'ru' ? 'Адрес сохранён для всех' : 'Address saved for everyone', 'success')
     haptic('success')
     setEditing(false)
   }
@@ -143,8 +171,8 @@ function AddressRow({ network }: { network: typeof CRYPTO_OPTIONS[number] }) {
             style={{ fontSize: 12, fontFamily: 'monospace' }}
           />
           <div className="row gap-2">
-            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save}>
-              {t('admin_save')}
+            <button type="button" className="adm-btn adm-btn--primary adm-btn--sm" style={{ flex: 1 }} onClick={save} disabled={saving}>
+              {saving ? (lang === 'ru' ? 'Сохранение…' : 'Saving…') : t('admin_save')}
             </button>
             <button
               type="button"

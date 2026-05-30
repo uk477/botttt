@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useT } from '../i18n'
 import { useStore } from '../store'
 import { CONFIG } from '../config'
+import { botReferralLink } from '../utils/telegramLink'
 import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from './Toast'
 import RefWithdrawSheet from './RefWithdrawSheet'
@@ -29,6 +30,7 @@ export default function ReferralCard() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
   const user = useStore((s) => s.user)
+  const siteLinks = useStore((s) => s.siteLinks)
   const refReward = useStore((s) => s.refReward)
   const checkAndResetMonthlyReward = useStore((s) => s.checkAndResetMonthlyReward)
   const { haptic } = useTelegram()
@@ -52,7 +54,7 @@ export default function ReferralCard() {
 
   if (!user) return null
 
-  const refLink = `https://t.me/${CONFIG.botUsername}?start=ref${user.uid}`
+  const refLink = botReferralLink(siteLinks.botUrl, user.uid, CONFIG.botUsername)
   const GOAL = 10
   const progress = Math.min(refReward.count, GOAL)
   const needed   = Math.max(0, GOAL - progress)

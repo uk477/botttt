@@ -2,8 +2,9 @@ import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
-import { orders, settings } from "../db.js";
+import { orders } from "../db.js";
 import { ENV } from "../env.js";
+import { getPublicStoreConfig } from "../storeConfig.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
 
 const router = Router();
@@ -19,21 +20,10 @@ const orderLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-function readMaintenanceFlag(): boolean {
-  const raw = settings.get("maintenance");
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed === true;
-  } catch {
-    return raw === "true";
-  }
-}
-
-// ── GET /api/config/app — public app flags (maintenance, etc.) ───
+// ── GET /api/config/app — public storefront config (synced from admin) ───
 
 router.get("/api/config/app", (_req: Request, res: Response) => {
-  res.json({ maintenance: readMaintenanceFlag() });
+  res.json(getPublicStoreConfig());
 });
 
 // ── GET /api/config/wallets — public runtime wallet addresses ──────

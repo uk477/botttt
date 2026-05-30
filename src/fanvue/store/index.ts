@@ -14,8 +14,9 @@ import type {
   Lang, User, Category, Product, Order, SupportMessage, CartItem, CryptoOption,
   CryptoNetwork, PaymentLog, Broadcast, PaymentNotification, RefReward, RefWithdrawal,
   SupportTicket, SupportTicketCategory, AdminPresence, OrderReceiptPayload,
-  Referral, RealSale,
+  Referral, RealSale, SiteContent, SiteLinks,
 } from './types'
+import { defaultSiteLinks, mergeStoreConfigPatch, type PublicStoreConfig } from './storeConfigSync'
 
 export const CRYPTO_OPTIONS: CryptoOption[] = [
   { id: 'trc20',    name: 'USDT TRC20',  symbol: 'USDT', color: '#26A17B', icon: '₮', address: CONFIG.addresses.trc20 },
@@ -89,27 +90,7 @@ function mapServerOrder(o: Record<string, unknown>): Order {
   }
 }
 
-export interface SiteContent {
-  offer_ru: string
-  offer_en: string
-  rules_ru: string
-  rules_en: string
-  contacts_ru: string
-  contacts_en: string
-  referral_rules_ru: string
-  referral_rules_en: string
-}
-
-export interface SiteLinks {
-  supportUrl:   string  // ссылка/юзернейм для связи с поддержкой
-  adminUrl:     string  // ссылка/юзернейм администратора
-  chatUrl:      string  // общий чат
-  communityUrl: string  // комьюнити
-  channelUrl:   string  // новостной канал
-  reviewsUrl:   string  // отзывы
-  botUrl:       string  // ссылка на бота
-  securityInstructionUrl: string  // ссылка на инструкцию по безопасности (открывается из блока выдачи)
-}
+export type { SiteContent, SiteLinks } from './types'
 
 interface AppStore {
   lang: Lang
@@ -220,6 +201,8 @@ interface AppStore {
   addStickHeroScore: (score: number) => void
   setStickHeroName: (name: string) => void
   syncAdminData: () => Promise<void>
+  syncStoreConfig: () => Promise<void>
+  persistAdminSettings: (body: Record<string, unknown>) => Promise<boolean>
 }
 
 export const useStore = create<AppStore>()(
@@ -265,16 +248,7 @@ export const useStore = create<AppStore>()(
         contacts_ru: '', contacts_en: '',
         referral_rules_ru: '', referral_rules_en: '',
       },
-      siteLinks: {
-        supportUrl:   `https://t.me/${CONFIG.supportUsername}`,
-        adminUrl:     `https://t.me/${CONFIG.adminUsername}`,
-        chatUrl:      `https://t.me/${CONFIG.communityUsername}`,
-        communityUrl: `https://t.me/${CONFIG.communityUsername}`,
-        channelUrl:   `https://t.me/${CONFIG.channelUsername}`,
-        reviewsUrl:   '',
-        botUrl:       `https://t.me/${CONFIG.botUsername}`,
-        securityInstructionUrl: CONFIG.securityInstructionUrl,
-      },
+      siteLinks: defaultSiteLinks(),
 
       setLang: (lang) => {
         set({ lang, langUserSet: true })
@@ -338,11 +312,7 @@ export const useStore = create<AppStore>()(
 
             // sync with server when API is enabled
             if (api.isEnabled()) {
-              api.getAppConfig().then((cfg) => {
-                if (cfg && typeof cfg.maintenance === 'boolean') {
-                  set({ maintenance: cfg.maintenance })
-                }
-              })
+              get().syncStoreConfig()
               api.auth({}).then((serverUser) => {
                 if (serverUser && typeof serverUser === 'object') {
                   const u = serverUser as Record<string, unknown>
@@ -720,6 +690,36 @@ export const useStore = create<AppStore>()(
           ),
         })),
 
+      syncStoreConfig: async () => {
+        if (!api.isEnabled()) return
+        try {
+          const cfg = await api.getAppConfig()
+          const patch = mergeStoreConfigPatch(
+            {
+              cryptoAddresses: get().cryptoAddresses,
+              siteLinks: get().siteLinks,
+              siteContent: get().siteContent,
+              photos: get().photos,
+              qrOverrides: get().qrOverrides,
+              refWithdrawNetworks: get().refWithdrawNetworks,
+              maintenance: get().maintenance,
+            },
+            cfg,
+          )
+          if (Object.keys(patch).length > 0) set(patch)
+        } catch { /* ignore */ }
+      },
+
+      persistAdminSettings: async (body) => {
+        if (!api.isEnabled() || !get()._adminVerified) return false
+        try {
+          const res = await api.adminSetSettings(body)
+          return !!(res && res.ok)
+        } catch {
+          return false
+        }
+      },
+
       syncAdminData: async () => {
         if (!api.isEnabled() || !get()._adminVerified) return
         try {
@@ -733,27 +733,27 @@ export const useStore = create<AppStore>()(
           const patch: Partial<AppStore> = {}
           if (settingsRes && typeof settingsRes === 'object') {
             const s = settingsRes as Record<string, unknown>
-            if (s.addresses && typeof s.addresses === 'object') {
-              patch.cryptoAddresses = { ...get().cryptoAddresses, ...(s.addresses as Record<CryptoNetwork, string>) }
-            }
-            if (s.siteLinks && typeof s.siteLinks === 'object') {
-              patch.siteLinks = { ...get().siteLinks, ...(s.siteLinks as SiteLinks) }
-            }
-            if (s.siteContent && typeof s.siteContent === 'object') {
-              patch.siteContent = { ...get().siteContent, ...(s.siteContent as SiteContent) }
-            }
-            if (s.refWithdrawNetworks && Array.isArray(s.refWithdrawNetworks)) {
-              patch.refWithdrawNetworks = s.refWithdrawNetworks as CryptoNetwork[]
-            }
-            if (s.photos && typeof s.photos === 'object') {
-              patch.photos = s.photos as Record<string, string>
-            }
-            if (s.qrOverrides && typeof s.qrOverrides === 'object') {
-              patch.qrOverrides = s.qrOverrides as Partial<Record<CryptoNetwork, string>>
-            }
-            if (typeof s.maintenance === 'boolean') {
-              patch.maintenance = s.maintenance
-            }
+            const cfgPatch = mergeStoreConfigPatch(
+              {
+                cryptoAddresses: get().cryptoAddresses,
+                siteLinks: get().siteLinks,
+                siteContent: get().siteContent,
+                photos: get().photos,
+                qrOverrides: get().qrOverrides,
+                refWithdrawNetworks: get().refWithdrawNetworks,
+                maintenance: get().maintenance,
+              },
+              {
+                maintenance: typeof s.maintenance === 'boolean' ? s.maintenance : undefined,
+                addresses: s.addresses as PublicStoreConfig['addresses'],
+                siteLinks: s.siteLinks as PublicStoreConfig['siteLinks'],
+                siteContent: s.siteContent as PublicStoreConfig['siteContent'],
+                photos: s.photos as PublicStoreConfig['photos'],
+                qrOverrides: s.qrOverrides as PublicStoreConfig['qrOverrides'],
+                refWithdrawNetworks: s.refWithdrawNetworks as PublicStoreConfig['refWithdrawNetworks'],
+              },
+            )
+            Object.assign(patch, cfgPatch)
           }
           if (Array.isArray(ordersRes)) {
             patch.orders = (ordersRes as Record<string, unknown>[]).map(mapServerOrder)
@@ -777,16 +777,10 @@ export const useStore = create<AppStore>()(
       // ─── ADMIN ─────────────────────────────────────────
       setCryptoAddress: (network, address) => {
         set((s) => ({ cryptoAddresses: { ...s.cryptoAddresses, [network]: address } }))
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ addresses: get().cryptoAddresses })
-        }
       },
 
       setSiteLink: (key, value) => {
         set((s) => ({ siteLinks: { ...s.siteLinks, [key]: value } }))
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ siteLinks: get().siteLinks })
-        }
       },
 
       setQrOverride: (network, dataUri) => {
@@ -795,9 +789,7 @@ export const useStore = create<AppStore>()(
           if (dataUri === null) delete next[network]; else next[network] = dataUri
           return { qrOverrides: next }
         })
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ qrOverrides: get().qrOverrides })
-        }
+        void get().persistAdminSettings({ qrOverrides: get().qrOverrides })
       },
 
       setPhoto: (key, dataUri) => {
@@ -806,17 +798,13 @@ export const useStore = create<AppStore>()(
           if (dataUri === null) delete next[key]; else next[key] = dataUri
           return { photos: next }
         })
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ photos: get().photos })
-        }
+        void get().persistAdminSettings({ photos: get().photos })
       },
 
       toggleMaintenance: () => {
         const next = !get().maintenance
         set({ maintenance: next })
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ maintenance: next })
-        }
+        void get().persistAdminSettings({ maintenance: next })
       },
 
       setOrderStatus: (id, status) => {
@@ -973,9 +961,7 @@ export const useStore = create<AppStore>()(
 
       setSiteContent: (key, value) => {
         set((s) => ({ siteContent: { ...s.siteContent, [key]: value } }))
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ siteContent: get().siteContent })
-        }
+        void get().persistAdminSettings({ siteContent: get().siteContent })
       },
 
       markOrderForwarded: (orderId) =>
@@ -993,9 +979,7 @@ export const useStore = create<AppStore>()(
 
       setRefWithdrawNetworks: (networks) => {
         set({ refWithdrawNetworks: networks })
-        if (api.isEnabled() && get()._adminVerified) {
-          api.adminSetSettings({ refWithdrawNetworks: networks })
-        }
+        void get().persistAdminSettings({ refWithdrawNetworks: networks })
       },
 
       isAdmin: (): boolean => get()._adminVerified,
@@ -1069,20 +1053,7 @@ export const useStore = create<AppStore>()(
         }
         // ensure newly added siteLinks fields fall back to defaults
         if (s.siteLinks) {
-          const defaults = {
-            supportUrl:   `https://t.me/${CONFIG.supportUsername}`,
-            adminUrl:     `https://t.me/${CONFIG.adminUsername}`,
-            chatUrl:      `https://t.me/${CONFIG.communityUsername}`,
-            communityUrl: `https://t.me/${CONFIG.communityUsername}`,
-            channelUrl:   `https://t.me/${CONFIG.channelUsername}`,
-            reviewsUrl:   '',
-            botUrl:       `https://t.me/${CONFIG.botUsername}`,
-            securityInstructionUrl: CONFIG.securityInstructionUrl,
-          }
-          s.siteLinks = { ...defaults, ...s.siteLinks }
-          if (s.siteLinks.securityInstructionUrl === CONFIG.securityInstructionUrl) {
-            s.siteLinks.securityInstructionUrl = ''
-          }
+          s.siteLinks = { ...defaultSiteLinks(), ...s.siteLinks }
         }
         if (s.orders) {
           s.orders = s.orders.map((o) =>

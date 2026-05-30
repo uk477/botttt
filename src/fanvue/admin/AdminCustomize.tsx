@@ -42,14 +42,28 @@ function EditableLink({ field }: { field: typeof LINK_FIELDS[number] }) {
   const lang     = useStore((s) => s.lang)
   const links    = useStore((s) => s.siteLinks)
   const setLink  = useStore((s) => s.setSiteLink)
+  const persist  = useStore((s) => s.persistAdminSettings)
   const toast    = useToast()
   const { haptic } = useTelegram()
   const [value, setValue] = useState(links[field.key])
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const save = () => {
+  useEffect(() => {
+    setValue(links[field.key])
+  }, [links[field.key], field.key])
+
+  const save = async () => {
+    setSaving(true)
     setLink(field.key, value.trim())
-    toast.show(lang === 'ru' ? 'Сохранено' : 'Saved', 'success')
+    const ok = await persist({ siteLinks: useStore.getState().siteLinks })
+    setSaving(false)
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не удалось сохранить на сервер' : 'Failed to save to server', 'error')
+      haptic('error')
+      return
+    }
+    toast.show(lang === 'ru' ? 'Сохранено для всех' : 'Saved for everyone', 'success')
     haptic('success')
     setEditing(false)
   }
@@ -74,8 +88,8 @@ function EditableLink({ field }: { field: typeof LINK_FIELDS[number] }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="adm-btn adm-btn--primary" style={{ flex: 1 }} onClick={save}>
-              {lang === 'ru' ? 'Сохранить' : 'Save'}
+            <button type="button" className="adm-btn adm-btn--primary" style={{ flex: 1 }} onClick={save} disabled={saving}>
+              {saving ? (lang === 'ru' ? 'Сохранение…' : 'Saving…') : (lang === 'ru' ? 'Сохранить' : 'Save')}
             </button>
             <button
               type="button"
@@ -109,14 +123,28 @@ function EditableText({ field }: { field: typeof TEXT_FIELDS[number] }) {
   const lang = useStore((s) => s.lang)
   const content = useStore((s) => s.siteContent)
   const setContent = useStore((s) => s.setSiteContent)
+  const persist = useStore((s) => s.persistAdminSettings)
   const toast = useToast()
   const { haptic } = useTelegram()
   const [value, setValue] = useState(content[field.key])
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const save = () => {
+  useEffect(() => {
+    setValue(content[field.key])
+  }, [content[field.key], field.key])
+
+  const save = async () => {
+    setSaving(true)
     setContent(field.key, value)
-    toast.show(lang === 'ru' ? 'Сохранено' : 'Saved', 'success')
+    const ok = await persist({ siteContent: useStore.getState().siteContent })
+    setSaving(false)
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не удалось сохранить на сервер' : 'Failed to save to server', 'error')
+      haptic('error')
+      return
+    }
+    toast.show(lang === 'ru' ? 'Сохранено для всех' : 'Saved for everyone', 'success')
     haptic('success')
     setEditing(false)
   }
@@ -134,8 +162,8 @@ function EditableText({ field }: { field: typeof TEXT_FIELDS[number] }) {
             style={{ fontSize: 12, resize: 'vertical', minHeight: 80 }}
           />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="adm-btn adm-btn--primary" style={{ flex: 1 }} onClick={save}>
-              {lang === 'ru' ? 'Сохранить' : 'Save'}
+            <button type="button" className="adm-btn adm-btn--primary" style={{ flex: 1 }} onClick={save} disabled={saving}>
+              {saving ? (lang === 'ru' ? 'Сохранение…' : 'Saving…') : (lang === 'ru' ? 'Сохранить' : 'Save')}
             </button>
             <button
               type="button"

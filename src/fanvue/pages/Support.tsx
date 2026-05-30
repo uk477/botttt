@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import { useTelegram } from "../hooks/useTelegram";
 import { tgNotify } from "../utils/tgNotify";
 import { CONFIG } from "../config";
+import { normalizeTelegramUrl } from "../utils/telegramLink";
 import ConfirmSheet from "../components/ConfirmSheet";
 import OrderReceiptMessage from "../components/OrderReceiptMessage";
 import type {
@@ -2702,6 +2703,8 @@ function ActionRow({
 
 function InfoSheet({ t, onClose, onCloseTicket }: { t: (ru: string, en: string) => string; onClose: () => void; onCloseTicket?: () => void }) {
   const [open, setOpen] = useState<number | null>(0);
+  const siteLinks = useStore((s) => s.siteLinks);
+  const supportHref = normalizeTelegramUrl(siteLinks.supportUrl) || normalizeTelegramUrl(`@${CONFIG.supportUsername}`);
 
   // Считаем "сейчас работаем" по GMT+3, 8:00–22:00
   const nowMskHour = (() => {
@@ -2917,7 +2920,7 @@ function InfoSheet({ t, onClose, onCloseTicket }: { t: (ru: string, en: string) 
           transition={{ delay: 0.35 }}
           whileTap={{ scale: 0.98 }}
           whileHover="hover"
-          href={`https://t.me/${CONFIG.supportUsername}`}
+          href={supportHref || '#'}
           target="_blank"
           rel="noopener noreferrer"
           style={{

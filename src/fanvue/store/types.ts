@@ -4,6 +4,28 @@ export type OrderStatus = 'pending' | 'paid' | 'completed' | 'failed' | 'expired
 export type OrderKind = 'buy' | 'deposit'
 export type CryptoNetwork = 'trc20' | 'erc20' | 'bep20' | 'eth' | 'sol' | 'btc' | 'usdc_eth' | 'usdc_sol' | 'ton'
 
+export interface SiteContent {
+  offer_ru: string
+  offer_en: string
+  rules_ru: string
+  rules_en: string
+  contacts_ru: string
+  contacts_en: string
+  referral_rules_ru: string
+  referral_rules_en: string
+}
+
+export interface SiteLinks {
+  supportUrl: string
+  adminUrl: string
+  chatUrl: string
+  communityUrl: string
+  channelUrl: string
+  reviewsUrl: string
+  botUrl: string
+  securityInstructionUrl: string
+}
+
 export interface User {
   uid: number
   username: string

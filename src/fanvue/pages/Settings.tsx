@@ -7,6 +7,7 @@ import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from '../components/Toast'
 import { CONFIG } from '../config'
+import { openTelegramUrl } from '../utils/telegramLink'
 import type { Lang } from '../store/types'
 import type { SiteContent } from '../store'
 import fanvueMarkSrc from '../assets/fanvue-mark.png'
@@ -589,6 +590,7 @@ export default function Settings() {
   const navigate = useNavigate()
   const t        = useT()
   const lang     = useStore((s) => s.lang)
+  const siteLinks = useStore((s) => s.siteLinks)
   const setLang  = useStore((s) => s.setLang)
   const { haptic } = useTelegram()
   const toast    = useToast()
@@ -799,7 +801,7 @@ export default function Settings() {
                 <motion.button
                   whileTap={{ scale: 0.96 }}
                   whileHover={{ background: 'rgba(0,255,136,0.08)' }}
-                  onClick={() => { haptic('light'); window.open(`https://t.me/${CONFIG.channelUsername}`, '_blank') }}
+                  onClick={() => { haptic('light'); openTelegramUrl(siteLinks.channelUrl, CONFIG.channelUsername) }}
                   style={{
                     flex: 1, background: 'rgba(255,255,255,0.04)',
                     border: 0, padding: 12, cursor: 'pointer', textAlign: 'left',
@@ -818,7 +820,7 @@ export default function Settings() {
                 <motion.button
                   whileTap={{ scale: 0.96 }}
                   whileHover={{ background: 'rgba(0,255,136,0.08)' }}
-                  onClick={() => { haptic('light'); window.open(`https://t.me/${CONFIG.communityUsername || CONFIG.channelUsername}`, '_blank') }}
+                  onClick={() => { haptic('light'); openTelegramUrl(siteLinks.reviewsUrl || siteLinks.channelUrl, CONFIG.channelUsername) }}
                   style={{
                     flex: 1, background: 'rgba(255,255,255,0.04)',
                     border: 0, padding: 12, cursor: 'pointer', textAlign: 'left',
@@ -842,7 +844,7 @@ export default function Settings() {
               variants={fadeUp}
               whileTap={{ scale: 0.985 }}
               whileHover={{ borderColor: 'rgba(0,255,136,0.38)', backgroundColor: 'rgba(0,255,136,0.08)' }}
-              onClick={() => { haptic('medium'); window.open(`https://t.me/${CONFIG.communityUsername || CONFIG.channelUsername}`, '_blank') }}
+              onClick={() => { haptic('medium'); openTelegramUrl(siteLinks.chatUrl || siteLinks.communityUrl, CONFIG.communityUsername) }}
               style={{
                 width: '100%', background: 'rgba(255,255,255,0.04)', color: '#fff',
                 padding: '18px 18px', position: 'relative', overflow: 'hidden',
