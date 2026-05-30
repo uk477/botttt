@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import helmet from "helmet";
 import cors from "cors";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { ENV } from "./env.js";
 import { settings } from "./db.js";
 import authRouter from "./routes/auth.js";
@@ -45,7 +45,8 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const initData = req.headers["x-telegram-init-data"] as string;
-    return initData?.slice(0, 64) || req.ip || "unknown";
+    if (initData) return initData.slice(0, 64);
+    return ipKeyGenerator(req.ip ?? "unknown", 56);
   },
 });
 app.use("/api/", globalLimiter);
