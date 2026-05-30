@@ -114,6 +114,8 @@ interface AppStore {
   // Admin-editable state
   cryptoAddresses: Record<CryptoNetwork, string>
   maintenance: boolean
+  /** True after first /api/config/app fetch (do not use localStorage for maintenance). */
+  storeConfigLoaded: boolean
   logs: PaymentLog[]
   broadcasts: Broadcast[]
   qrOverrides: Partial<Record<CryptoNetwork, string>>
@@ -171,7 +173,7 @@ interface AppStore {
   setSiteLink: (key: keyof SiteLinks, value: string) => void
   setQrOverride: (network: CryptoNetwork, dataUri: string | null) => void
   setPhoto: (key: string, dataUri: string | null) => void
-  toggleMaintenance: () => void
+  toggleMaintenance: () => Promise<boolean>
   setOrderStatus: (id: string, status: Order['status']) => void
   setOrderDelivery: (id: string, deliveryData: string) => void
   /** Если у заказа есть product_id и товар на автовыдаче — забирает первую
@@ -228,6 +230,7 @@ export const useStore = create<AppStore>()(
 
       cryptoAddresses: { ...CONFIG.addresses },
       maintenance: false,
+      storeConfigLoaded: false,
       logs: [],
       broadcasts: [],
       qrOverrides: Object.fromEntries(
@@ -310,9 +313,8 @@ export const useStore = create<AppStore>()(
               set({ _adminCheckDone: true })
             })
 
-            // sync with server when API is enabled
             if (api.isEnabled()) {
-              get().syncStoreConfig()
+              void get().syncStoreConfig()
               api.auth({}).then((serverUser) => {
                 if (serverUser && typeof serverUser === 'object') {
                   const u = serverUser as Record<string, unknown>
@@ -325,6 +327,9 @@ export const useStore = create<AppStore>()(
                   if (serverIsAdmin) {
                     set({ _adminVerified: true, _adminCheckDone: true })
                     get().syncAdminData()
+                  }
+                  if (typeof u.maintenance === 'boolean') {
+                    set({ maintenance: u.maintenance as boolean })
                   }
                   set((s) => ({
                     user: s.user ? {
@@ -366,6 +371,7 @@ export const useStore = create<AppStore>()(
               })
             }
           } else {
+            if (api.isEnabled()) void get().syncStoreConfig()
             const persistedUser = get().user
             set({ user: persistedUser ?? MOCK_USER, isLoading: false })
             // Demo mode: verify mock user against hashes too
@@ -691,7 +697,10 @@ export const useStore = create<AppStore>()(
         })),
 
       syncStoreConfig: async () => {
-        if (!api.isEnabled()) return
+        if (!api.isEnabled()) {
+          set({ storeConfigLoaded: true })
+          return
+        }
         try {
           const cfg = await api.getAppConfig()
           const patch = mergeStoreConfigPatch(
@@ -702,12 +711,15 @@ export const useStore = create<AppStore>()(
               photos: get().photos,
               qrOverrides: get().qrOverrides,
               refWithdrawNetworks: get().refWithdrawNetworks,
-              maintenance: get().maintenance,
+              maintenance: false,
             },
             cfg,
           )
           if (Object.keys(patch).length > 0) set(patch)
         } catch { /* ignore */ }
+        finally {
+          set({ storeConfigLoaded: true })
+        }
       },
 
       persistAdminSettings: async (body) => {
@@ -801,10 +813,16 @@ export const useStore = create<AppStore>()(
         void get().persistAdminSettings({ photos: get().photos })
       },
 
-      toggleMaintenance: () => {
-        const next = !get().maintenance
+      toggleMaintenance: async () => {
+        const prev = get().maintenance
+        const next = !prev
         set({ maintenance: next })
-        void get().persistAdminSettings({ maintenance: next })
+        const ok = await get().persistAdminSettings({ maintenance: next })
+        if (!ok) {
+          set({ maintenance: prev })
+          return false
+        }
+        return true
       },
 
       setOrderStatus: (id, status) => {
@@ -1087,7 +1105,6 @@ export const useStore = create<AppStore>()(
         cryptoAddresses: s.cryptoAddresses,
         qrOverrides: s.qrOverrides,
         photos: s.photos,
-        maintenance: s.maintenance,
         notifications: s.notifications,
         siteContent: s.siteContent,
         siteLinks: s.siteLinks,

@@ -232,13 +232,17 @@ export default function AdminSettings() {
     syncAdminData()
   }, [syncAdminData])
 
-  const handleToggle = () => {
-    toggleMaintenance()
+  const handleToggle = async () => {
+    const ok = await toggleMaintenance()
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не сохранилось на сервер' : 'Failed to save on server', 'error')
+      return
+    }
     toast.show(
       maintenance
-        ? (lang === 'ru' ? 'Режим обслуживания выключен' : 'Maintenance OFF')
-        : (lang === 'ru' ? 'Режим обслуживания включён' : 'Maintenance ON'),
-      'info',
+        ? (lang === 'ru' ? 'Магазин открыт для всех' : 'Shop open for everyone')
+        : (lang === 'ru' ? 'Магазин закрыт (кроме /admin)' : 'Shop closed (except /admin)'),
+      'success',
     )
   }
 
@@ -251,7 +255,7 @@ export default function AdminSettings() {
               on={maintenance}
               onToggle={handleToggle}
               label={maintenance ? (lang === 'ru' ? 'Магазин закрыт' : 'Shop closed') : (lang === 'ru' ? 'Магазин открыт' : 'Shop open')}
-              description={lang === 'ru' ? 'Синхронизируется на все устройства' : 'Syncs across all devices'}
+              description={lang === 'ru' ? 'Покупатели видят заглушку. Админка /admin работает.' : 'Buyers see stub. Admin /admin still works.'}
             />
           </AdminCard>
         </AdminSection>

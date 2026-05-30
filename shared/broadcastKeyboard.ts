@@ -44,7 +44,8 @@ export function buildBroadcastReplyMarkup(
       const text = (b.text ?? '').trim().slice(0, TEXT_MAX)
       if (!text) continue
       if (b.type === 'web_app') {
-        const url = normalizeUrl(b.url, true) || defaultWebAppUrl
+        const custom = normalizeUrl(b.url, true)
+        const url = normalizeWebAppUrl(custom || defaultWebAppUrl)
         if (!url) continue
         built.push({ text, web_app: { url } })
       } else {
@@ -119,6 +120,29 @@ export function keyboardSummary(keyboard: BroadcastKeyboardInput | undefined, la
   return lang === 'ru' ? `${n} кноп.` : `${n} btn.`
 }
 
+/** Valid HTTPS URL for Telegram Web App button (needs real host, e.g. fanvue-shop.com). */
+export function isValidWebAppUrl(raw: string | undefined | null): boolean {
+  const u = (raw ?? '').trim()
+  if (!u) return false
+  try {
+    const parsed = new URL(u.includes('://') ? u : `https://${u}`)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname
+    if (!host || host === 'localhost') return false
+    if (!host.includes('.')) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function normalizeWebAppUrl(raw: string | undefined | null): string {
+  const u = (raw ?? '').trim()
+  if (!isValidWebAppUrl(u)) return ''
+  const parsed = new URL(u.includes('://') ? u : `https://${u}`)
+  return parsed.origin
+}
+
 /** One full-width Telegram button (mini-app). */
 export function buildSimpleButtonMarkup(
   buttonText: string,
@@ -126,7 +150,7 @@ export function buildSimpleButtonMarkup(
 ): { inline_keyboard: Record<string, unknown>[][] } | undefined {
   const text = buttonText.trim().slice(0, TEXT_MAX)
   if (!text) return undefined
-  const url = (webAppUrl ?? '').trim()
+  const url = normalizeWebAppUrl(webAppUrl)
   if (!url) return undefined
   return { inline_keyboard: [[{ text, web_app: { url } }]] }
 }

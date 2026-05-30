@@ -1,7 +1,17 @@
 import { CONFIG } from '../config'
 import { getTelegramInitData } from '../utils/security'
 
-const base = CONFIG.apiUrl
+/** Same-origin fallback when VITE_API_URL was not set at build time (typical VPS deploy). */
+function resolveApiBase(): string {
+  const configured = (CONFIG.apiUrl ?? '').trim().replace(/\/+$/, '')
+  if (configured) return configured
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
+  return ''
+}
+
+const base = resolveApiBase()
 const TIMEOUT_MS = 12_000
 const MAX_RETRIES = 2
 

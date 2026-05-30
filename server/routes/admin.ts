@@ -286,11 +286,18 @@ router.post("/api/admin/broadcast", broadcastLimiter, async (req: Request, res: 
   if (typeof buttonText === "string") {
     const label = buttonText.trim().slice(0, 64);
     if (label) {
-      replyMarkup = buildSimpleButtonMarkup(label, ENV.webAppUrl);
-      if (!replyMarkup && !ENV.webAppUrl) {
+      if (!ENV.webAppUrl) {
+        const raw = process.env.WEBAPP_URL || process.env.VITE_SITE_URL || "";
         res.status(400).json({
-          error: "WEBAPP_URL is not set on server — cannot add app button",
+          error: raw.trim()
+            ? `WEBAPP_URL неверный: "${raw.trim()}". Нужен https://ваш-домен.com`
+            : "WEBAPP_URL не задан в .env на сервере",
         });
+        return;
+      }
+      replyMarkup = buildSimpleButtonMarkup(label, ENV.webAppUrl);
+      if (!replyMarkup) {
+        res.status(400).json({ error: "Не удалось создать кнопку приложения" });
         return;
       }
       meta = { enabled: true, buttonText: label };

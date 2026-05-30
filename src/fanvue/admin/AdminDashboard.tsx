@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { useToast } from '../components/Toast'
 import PageTransition from '../components/PageTransition'
 import { api } from '../store/api'
 import {
@@ -55,6 +56,14 @@ export default function AdminDashboard() {
   const refW = useStore((s) => s.refWithdrawals)
   const maintenance = useStore((s) => s.maintenance)
   const toggleMaintenance = useStore((s) => s.toggleMaintenance)
+  const toast = useToast()
+
+  const handleMaintenanceToggle = async () => {
+    const ok = await toggleMaintenance()
+    if (!ok) {
+      toast.show(lang === 'ru' ? 'Не сохранилось на сервер' : 'Failed to save on server', 'error')
+    }
+  }
   const syncAdminData = useStore((s) => s.syncAdminData)
 
   const [period, setPeriod] = useState<Period>('today')
@@ -125,7 +134,7 @@ export default function AdminDashboard() {
           <AdminCard>
             <AdminToggle
               on={maintenance}
-              onToggle={toggleMaintenance}
+              onToggle={handleMaintenanceToggle}
               label={maintenance ? (lang === 'ru' ? 'Магазин закрыт' : 'Shop closed') : (lang === 'ru' ? 'Магазин открыт' : 'Shop open')}
               description={
                 maintenance

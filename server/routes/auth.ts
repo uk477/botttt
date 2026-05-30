@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin } from "../telegram.js";
 import { users, settings } from "../db.js";
+import { readMaintenanceFlag } from "../storeConfig.js";
 
 const router = Router();
 
@@ -41,6 +42,7 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
     language_code: user.language_code ?? "en",
     preferred_lang,
     isAdmin: isAdmin(user.id),
+    maintenance: readMaintenanceFlag(),
     balance: row.balance,
     spent: row.spent,
     purchases: row.purchases,

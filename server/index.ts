@@ -18,6 +18,9 @@ const DIST = path.resolve(__dirname, "..", "..", "dist");
 
 const app = express();
 
+// Caddy / nginx send X-Forwarded-For — required for express-rate-limit
+app.set("trust proxy", process.env.TRUST_PROXY === "0" ? false : 1);
+
 // ── Security middleware ──────────────────────────────────────────
 app.use(
   helmet({
@@ -95,7 +98,15 @@ app.get("/api/health", (_req, res) => {
 app.get("/api/test-notify", async (_req, res) => {
   const { notifyAdmin } = await import("./telegram.js");
   const ok = await notifyAdmin("✅ Тестовое уведомление — если видишь это, уведомления работают!");
-  res.json({ ok, adminChatId: ENV.adminChatId, botTokenSet: !!ENV.botToken, webAppUrl: ENV.webAppUrl });
+  const rawWebApp = process.env.WEBAPP_URL || process.env.VITE_SITE_URL || "";
+  res.json({
+    ok,
+    adminChatId: ENV.adminChatId,
+    botTokenSet: !!ENV.botToken,
+    webAppUrl: ENV.webAppUrl || null,
+    webAppUrlRaw: rawWebApp || null,
+    webAppUrlOk: !!ENV.webAppUrl,
+  });
 });
 
 // ── Serve static SPA from dist/ ─────────────────────────────────────

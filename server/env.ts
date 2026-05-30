@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { normalizeWebAppUrl } from "../shared/broadcastKeyboard.js";
 
 function req(key: string): string {
   const v = process.env[key];
@@ -16,7 +17,16 @@ export const ENV = {
   notifyBotToken: opt("NOTIFY_BOT_TOKEN"),
   adminChatId: req("ADMIN_CHAT_ID"),
   notifyGroupId: opt("NOTIFY_GROUP_ID"),
-  webAppUrl: opt("WEBAPP_URL") || opt("VITE_SITE_URL"),
+  webAppUrl: (() => {
+    const raw = opt("WEBAPP_URL") || opt("VITE_SITE_URL");
+    const url = normalizeWebAppUrl(raw);
+    if (raw.trim() && !url) {
+      console.warn(
+        `[env] WEBAPP_URL ignored (invalid for Telegram): "${raw}" — use https://your-domain.com`,
+      );
+    }
+    return url;
+  })(),
   webhookSecret: opt("TELEGRAM_WEBHOOK_SECRET"),
   corsOrigin: opt("CORS_ORIGIN"),
   adminHashes: (opt("ADMIN_HASHES") || opt("VITE_ADMIN_HASHES"))

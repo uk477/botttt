@@ -54,7 +54,9 @@ function MaintenanceScreen() {
 function AppInner() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { isLoading, initUser, maintenance } = useStore()
+  const initUser = useStore((s) => s.initUser)
+  const maintenance = useStore((s) => s.maintenance)
+  const storeConfigLoaded = useStore((s) => s.storeConfigLoaded)
   const isAdminVerified = useStore((s) => s._adminVerified)
   const { init, showBackButton } = useTelegram()
   const isKnownRoute = APP_ROUTES.some((p) =>
@@ -69,6 +71,12 @@ function AppInner() {
     document.addEventListener('contextmenu', block, { passive: false })
     return () => document.removeEventListener('contextmenu', block)
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const sync = useStore.getState().syncStoreConfig
+    const id = window.setInterval(() => void sync(), 45_000)
+    return () => window.clearInterval(id)
   }, [])
 
   // Wire Telegram native back button to history navigation
@@ -86,6 +94,10 @@ function AppInner() {
   const isAdminRoute = location.pathname.startsWith('/admin')
   const showNav = !HIDE_NAV.some((p) => location.pathname.startsWith(p)) &&
     !location.pathname.startsWith('/product/')
+
+  if (!storeConfigLoaded && !isAdminRoute) {
+    return <LoadingScreen />
+  }
 
   if (maintenance && !isAdminRoute && !isAdminVerified) {
     return <MaintenanceScreen />

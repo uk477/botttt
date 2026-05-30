@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
+import { readMaintenanceFlag } from "../storeConfig.js";
 import { orders } from "../db.js";
 import { ENV } from "../env.js";
 import { getPublicStoreConfig } from "../storeConfig.js";
@@ -23,6 +24,7 @@ const orderLimiter = rateLimit({
 // ── GET /api/config/app — public storefront config (synced from admin) ───
 
 router.get("/api/config/app", (_req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.json(getPublicStoreConfig());
 });
 
@@ -76,6 +78,11 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
   const user = verifyInitData(initData);
   if (!user) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  if (readMaintenanceFlag() && !isAdmin(user.id)) {
+    res.status(503).json({ error: "maintenance", message: "Shop is under maintenance" });
     return;
   }
 
