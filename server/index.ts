@@ -38,16 +38,24 @@ app.use(
   }),
 );
 
+function clientRateLimitKey(req: express.Request): string {
+  const initData = req.headers["x-telegram-init-data"] as string;
+  if (initData) return initData.slice(0, 64);
+  const fwd = req.headers["x-forwarded-for"];
+  const raw =
+    (typeof fwd === "string" ? fwd.split(",")[0]?.trim() : null) ||
+    req.socket.remoteAddress ||
+    "unknown";
+  return ipKeyGenerator(raw, 56);
+}
+
 const globalLimiter = rateLimit({
   windowMs: 60_000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const initData = req.headers["x-telegram-init-data"] as string;
-    if (initData) return initData.slice(0, 64);
-    return ipKeyGenerator(req.ip ?? "unknown", 56);
-  },
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: clientRateLimitKey,
 });
 app.use("/api/", globalLimiter);
 
