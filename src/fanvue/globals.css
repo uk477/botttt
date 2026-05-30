@@ -7341,10 +7341,49 @@ body.fv-game-open .fv-nav { display: none !important; }
   margin: 4px auto 14px;
 }
 
-/* Sales history calendar sheet */
-.sheet.sales-cal-sheet {
-  max-height: 88dvh;
-  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+/* Sales history calendar — portal overlay (fixed to viewport) */
+body.sales-cal-open,
+.scroll-area.sales-cal-open {
+  overflow: hidden !important;
+  touch-action: none;
+}
+
+.sales-cal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(3, 3, 3, 0.82);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  padding: 0;
+}
+
+.sales-cal-sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: min(86dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(57, 255, 99, 0.08) 0%, transparent 55%),
+    var(--fv-black, #050505);
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--fv-line, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 -24px 80px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sales-cal-handle {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 10px auto 6px;
+  flex-shrink: 0;
 }
 
 .sales-cal-head {
@@ -7352,31 +7391,45 @@ body.fv-game-open .fv-nav { display: none !important; }
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  padding: 4px 16px 12px;
+  flex-shrink: 0;
 }
 
-.sales-cal-head-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t-muted);
-  margin-bottom: 2px;
-}
-
-.sales-cal-head-title {
-  font-size: 17px;
+.sales-cal-eyebrow {
+  margin: 0 0 2px;
+  font-size: 10px;
   font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fv-soft, rgba(255, 255, 255, 0.55));
+}
+
+.sales-cal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
   letter-spacing: -0.02em;
+  color: var(--fv-text, #fff);
 }
 
 .sales-cal-close {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid var(--b-default);
-  background: var(--surface-2);
-  color: var(--t-muted);
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--fv-line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fv-muted);
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+}
+
+.sales-cal-card {
+  margin: 0 12px 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--fv-line);
   flex-shrink: 0;
 }
 
@@ -7384,28 +7437,32 @@ body.fv-game-open .fv-nav { display: none !important; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
 .sales-cal-month-title {
+  margin: 0;
   font-size: 14px;
   font-weight: 800;
+  color: var(--fv-text);
 }
 
 .sales-cal-month-title span {
-  color: var(--t-muted);
+  color: var(--fv-muted);
   font-weight: 600;
 }
 
 .sales-cal-nav {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
-  border: 1px solid var(--b-default);
-  background: var(--surface-2);
-  color: var(--t-primary);
+  border: 1px solid var(--fv-line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fv-text);
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 }
 
 .sales-cal-nav:disabled {
@@ -7417,166 +7474,214 @@ body.fv-game-open .fv-nav { display: none !important; }
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .sales-cal-week span {
   text-align: center;
   font-size: 10px;
   font-weight: 700;
-  color: var(--t-muted);
-  padding: 2px 0;
+  color: var(--fv-muted);
 }
 
 .sales-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  margin-bottom: 16px;
+}
+
+.sales-cal-pad {
+  height: 40px;
 }
 
 .sales-cal-day {
-  position: relative;
-  height: 36px;
-  border-radius: 10px;
-  border: 1.5px solid transparent;
+  height: 40px;
+  border-radius: 11px;
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--t-primary);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--fv-text);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   cursor: pointer;
+  padding: 0;
 }
 
 .sales-cal-day:disabled {
-  color: var(--t-muted);
-  opacity: 0.35;
+  opacity: 0.28;
   cursor: default;
 }
 
 .sales-cal-day.is-today {
-  background: var(--surface-2);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .sales-cal-day.is-selected {
-  border-color: rgba(57, 255, 99, 0.55);
-  background: rgba(57, 255, 99, 0.1);
-  font-weight: 800;
+  border-color: rgba(57, 255, 99, 0.45);
+  background: rgba(57, 255, 99, 0.12);
+  box-shadow: 0 0 0 1px rgba(57, 255, 99, 0.08);
 }
 
-.sales-cal-day-count {
-  font-size: 8px;
-  font-weight: 800;
-  color: var(--brand);
+.sales-cal-day-num {
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
 }
 
-.sales-cal-daypanel {
-  border-top: 1px solid var(--b-default);
-  padding-top: 12px;
+.sales-cal-day.is-selected .sales-cal-day-num {
+  font-weight: 900;
+}
+
+.sales-cal-day-dot {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--fv-green);
+  line-height: 1;
 }
 
 .sales-cal-daynav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 8px;
+  padding: 0 16px 8px;
+  flex-shrink: 0;
 }
 
 .sales-cal-daylabel {
+  margin: 0;
   font-size: 13px;
   font-weight: 700;
+  color: var(--fv-text);
+  text-align: center;
 }
 
 .sales-cal-daylabel span {
-  color: var(--t-muted);
+  color: var(--fv-muted);
   font-weight: 500;
-  margin-left: 6px;
+}
+
+.sales-cal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0 12px;
+  touch-action: pan-y;
 }
 
 .sales-cal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
-.sales-cal-row {
+.sales-cal-list li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--b-default);
+  gap: 9px;
+  padding: 8px 6px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
 }
 
-.sales-cal-row img {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--surface-2);
+.sales-cal-list li:last-child {
+  border-bottom: none;
+}
+
+.sales-cal-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(57, 255, 99, 0.3), rgba(57, 255, 99, 0.05));
+  border: 1px solid rgba(57, 255, 99, 0.25);
+}
+
+.sales-cal-av img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  display: block;
 }
 
-.sales-cal-row-meta {
+.sales-cal-meta {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.sales-cal-row-meta strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.sales-cal-row-meta span {
-  display: block;
-  font-size: 11px;
-  color: var(--t-muted);
+.sales-cal-meta strong {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--fv-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.sales-cal-row-time {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t-muted);
+.sales-cal-meta span {
+  font-size: 10px;
+  color: var(--fv-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sales-cal-time {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--fv-soft);
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--fv-line);
 }
 
 .sales-cal-empty {
+  margin: 0;
   text-align: center;
-  padding: 16px 8px;
+  padding: 20px 12px;
   font-size: 12px;
-  color: var(--t-muted);
+  color: var(--fv-muted);
+  line-height: 1.45;
 }
 
-.sales-cal-total {
+.sales-cal-foot {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 12px;
+  margin: 8px 12px max(12px, env(safe-area-inset-bottom, 0px));
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: rgba(57, 255, 99, 0.06);
-  border: 1px solid rgba(57, 255, 99, 0.12);
+  border: 1px solid rgba(57, 255, 99, 0.14);
 }
 
-.sales-cal-total span:first-child {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--t-muted);
+.sales-cal-foot span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fv-soft);
 }
 
-.sales-cal-total span:last-child {
-  font-size: 16px;
+.sales-cal-foot strong {
+  font-size: 17px;
   font-weight: 900;
-  color: var(--brand);
+  color: var(--fv-green);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ═══════════════════════════════════════════════════

@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import {
   generateSalesForDay,
@@ -24,6 +25,8 @@ const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July
 const MONTHS_EN_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const WEEK_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const WEEK_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+const EASE = [0.22, 1, 0.36, 1] as const
 
 function buildMonthGrid(viewMonth: Date) {
   const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1)
@@ -60,11 +63,24 @@ function mergeRealSales(realSales: { uid: number; productIndex: 0 | 1; ts: numbe
 
 export default function SalesHistorySheet({ onClose, lang, productTitle }: Props) {
   const [today] = useState(() => mskNow())
-  const [selected, setSelected] = useState<Date>(today)
-  const [viewMonth, setViewMonth] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1))
+  const [selected, setSelected] = useState<Date>(() => mskNow())
+  const [viewMonth, setViewMonth] = useState<Date>(() => {
+    const n = mskNow()
+    return new Date(n.getFullYear(), n.getMonth(), 1)
+  })
   const [visible, setVisible] = useState(true)
   const closingRef = useRef(false)
   const realSales = useStore((s) => s.realSales)
+
+  useEffect(() => {
+    document.body.classList.add('sales-cal-open')
+    const scroll = document.querySelector('.scroll-area')
+    scroll?.classList.add('sales-cal-open')
+    return () => {
+      document.body.classList.remove('sales-cal-open')
+      scroll?.classList.remove('sales-cal-open')
+    }
+  }, [])
 
   const closeSheet = () => {
     if (closingRef.current) return
@@ -112,149 +128,140 @@ export default function SalesHistorySheet({ onClose, lang, productTitle }: Props
     new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getTime()
     >= new Date(today.getFullYear(), today.getMonth() + 1, 0).getTime()
 
-  return (
+  const content = (
     <motion.div
-      className="modal-overlay"
-      data-closing={closingRef.current ? 'true' : undefined}
+      className="sales-cal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={lang === 'ru' ? 'История продаж' : 'Sales history'}
       initial={false}
       animate={{ opacity: visible ? 1 : 0 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.2, ease: EASE }}
       onAnimationComplete={() => {
         if (!visible) onClose()
       }}
       onClick={(e) => { if (e.target === e.currentTarget) closeSheet() }}
     >
       <motion.div
-        className="sheet sales-cal-sheet"
+        className="sales-cal-sheet"
         initial={{ y: '100%' }}
         animate={{ y: visible ? 0 : '100%' }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', stiffness: 340, damping: 34, mass: 0.75 }}
-        style={{ willChange: 'transform' }}
+        transition={{ type: 'tween', duration: 0.32, ease: EASE }}
         onClick={(e) => e.stopPropagation()}
       >
-        <motion.div
-          className="sheet-handle"
-          style={{ cursor: 'grab', touchAction: 'none' }}
-          drag="y"
-          dragDirectionLock
-          dragMomentum={false}
-          dragConstraints={{ top: 0 }}
-          dragElastic={{ top: 0, bottom: 0.4 }}
-          onDragEnd={(_, info) => {
-            if (closingRef.current) return
-            if (info.offset.y > 80 || info.velocity.y > 500) closeSheet()
-          }}
-        />
+        <div className="sales-cal-handle" aria-hidden />
 
-        <div className="sales-cal-head">
+        <header className="sales-cal-head">
           <div>
-            <div className="sales-cal-head-eyebrow">{lang === 'ru' ? 'История продаж' : 'Sales history'}</div>
-            <div className="sales-cal-head-title">{lang === 'ru' ? 'Календарь' : 'Calendar'}</div>
+            <p className="sales-cal-eyebrow">{lang === 'ru' ? 'История продаж' : 'Sales history'}</p>
+            <h2 className="sales-cal-title">{lang === 'ru' ? 'Календарь' : 'Calendar'}</h2>
           </div>
           <button type="button" className="sales-cal-close" onClick={closeSheet} aria-label={lang === 'ru' ? 'Закрыть' : 'Close'}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
           </button>
-        </div>
+        </header>
 
-        <div className="sales-cal-month">
-          <button type="button" className="sales-cal-nav" onClick={goPrevMonth} aria-label="Prev month">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-          <div className="sales-cal-month-title">
-            {monthName} <span>{viewMonth.getFullYear()}</span>
-          </div>
-          <button type="button" className="sales-cal-nav" onClick={goNextMonth} disabled={isFutureMonth} aria-label="Next month">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-        </div>
-
-        <div className="sales-cal-week">
-          {week.map((w) => <span key={w}>{w}</span>)}
-        </div>
-
-        <div className="sales-cal-grid">
-          {grid.map((d, i) => {
-            if (!d) return <div key={`e-${i}`} />
-            const isToday = sameDay(d, today)
-            const isSel = sameDay(d, selected)
-            const disabled = d.getTime() > today.getTime() || isBeforeStats(d)
-            const count = countForDay(d)
-            const cls = [
-              'sales-cal-day',
-              isToday ? 'is-today' : '',
-              isSel ? 'is-selected' : '',
-            ].filter(Boolean).join(' ')
-            return (
-              <button
-                key={i}
-                type="button"
-                className={cls}
-                onClick={() => !disabled && setSelected(d)}
-                disabled={disabled}
-              >
-                <span>{d.getDate()}</span>
-                {count > 0 && <span className="sales-cal-day-count">{count}</span>}
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="sales-cal-daypanel">
-          <div className="sales-cal-daynav">
-            <button type="button" className="sales-cal-nav" onClick={() => stepDay(-1)} aria-label="Prev day">
+        <section className="sales-cal-card">
+          <div className="sales-cal-month">
+            <button type="button" className="sales-cal-nav" onClick={goPrevMonth} aria-label="Prev month">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <div className="sales-cal-daylabel">
-              {selected.getDate()} {lang === 'ru' ? MONTHS_RU_GEN[selected.getMonth()] : MONTHS_EN_SHORT[selected.getMonth()]}
-              {sameDay(selected, today) && (
-                <span>· {lang === 'ru' ? 'сегодня' : 'today'}</span>
-              )}
-            </div>
-            <button
-              type="button"
-              className="sales-cal-nav"
-              onClick={() => stepDay(1)}
-              disabled={sameDay(selected, today)}
-              aria-label="Next day"
-            >
+            <p className="sales-cal-month-title">
+              {monthName} <span>{viewMonth.getFullYear()}</span>
+            </p>
+            <button type="button" className="sales-cal-nav" onClick={goNextMonth} disabled={isFutureMonth} aria-label="Next month">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
           </div>
 
+          <div className="sales-cal-week">
+            {week.map((w) => <span key={w}>{w}</span>)}
+          </div>
+
+          <div className="sales-cal-grid">
+            {grid.map((d, i) => {
+              if (!d) return <div key={`e-${i}`} className="sales-cal-pad" />
+              const isToday = sameDay(d, today)
+              const isSel = sameDay(d, selected)
+              const disabled = d.getTime() > today.getTime() || isBeforeStats(d)
+              const count = countForDay(d)
+              return (
+                <button
+                  key={`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`}
+                  type="button"
+                  className={[
+                    'sales-cal-day',
+                    isToday ? 'is-today' : '',
+                    isSel ? 'is-selected' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => !disabled && setSelected(d)}
+                  disabled={disabled}
+                >
+                  <span className="sales-cal-day-num">{d.getDate()}</span>
+                  {count > 0 && <span className="sales-cal-day-dot">{count}</span>}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        <div className="sales-cal-daynav">
+          <button type="button" className="sales-cal-nav" onClick={() => stepDay(-1)} aria-label="Prev day">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+          <p className="sales-cal-daylabel">
+            {selected.getDate()} {lang === 'ru' ? MONTHS_RU_GEN[selected.getMonth()] : MONTHS_EN_SHORT[selected.getMonth()]}
+            {sameDay(selected, today) && (
+              <span> · {lang === 'ru' ? 'сегодня' : 'today'}</span>
+            )}
+          </p>
+          <button
+            type="button"
+            className="sales-cal-nav"
+            onClick={() => stepDay(1)}
+            disabled={sameDay(selected, today)}
+            aria-label="Next day"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </div>
+
+        <div className="sales-cal-scroll">
           {isBeforeStats(selected) ? (
-            <div className="sales-cal-empty">
-              {lang === 'ru' ? 'Статистика ведётся с 20 апреля.' : 'Stats start from April 20.'}
-            </div>
+            <p className="sales-cal-empty">{lang === 'ru' ? 'Статистика ведётся с 20 апреля.' : 'Stats start from April 20.'}</p>
           ) : sales.length === 0 ? (
-            <div className="sales-cal-empty">
+            <p className="sales-cal-empty">
               {sameDay(selected, today)
                 ? (lang === 'ru' ? 'Сегодня пока тихо.' : 'Quiet so far today.')
                 : (lang === 'ru' ? 'В этот день продаж не было.' : 'No sales on this day.')}
-            </div>
+            </p>
           ) : (
-            <div className="sales-cal-list">
-              {sales.map((s, idx) => (
-                <div key={`${s.ts}-${idx}`} className="sales-cal-row">
-                  <img src={s.avatar} alt="" loading="lazy" />
-                  <div className="sales-cal-row-meta">
+            <ul className="sales-cal-list">
+              {sales.map((s) => (
+                <li key={`${s.buyerId}-${s.ts}`}>
+                  <div className="sales-cal-av">
+                    <img src={s.avatar} alt="" loading="lazy" />
+                  </div>
+                  <div className="sales-cal-meta">
                     <strong>{buyerLabel(s.handle, lang)}</strong>
                     <span>{productTitle(s.productIndex)}</span>
                   </div>
-                  <span className="sales-cal-row-time">{formatTime(s.ts)}</span>
-                </div>
+                  <time className="sales-cal-time">{formatTime(s.ts)}</time>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-
-          <div className="sales-cal-total">
-            <span>{lang === 'ru' ? 'Сделок за день' : 'Sales this day'}</span>
-            <span>{sales.length}</span>
-          </div>
         </div>
+
+        <footer className="sales-cal-foot">
+          <span>{lang === 'ru' ? 'Сделок за день' : 'Sales this day'}</span>
+          <strong>{sales.length}</strong>
+        </footer>
       </motion.div>
     </motion.div>
   )
+
+  return createPortal(content, document.body)
 }
