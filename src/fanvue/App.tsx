@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 // AnimatePresence removed — caused blank screen in Telegram WebView
 import ErrorBoundary from './components/ErrorBoundary'
@@ -38,12 +38,22 @@ import { ToastProvider } from './components/Toast'
 const HIDE_NAV = ['/deposit', '/settings', '/admin', '/support', '/referral-calendar']
 const APP_ROUTES = ['/', '/market', '/product/', '/deposit', '/profile', '/orders', '/deposits', '/support', '/settings', '/referral-calendar', '/admin']
 
-function MaintenanceScreen() {
+function MaintenanceScreen({ onOverride }: { onOverride?: () => void }) {
   const lang = useStore((s) => s.lang)
+  const [taps, setTaps] = useState(0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: 32, textAlign: 'center', gap: 16 }}>
       <div style={{ fontSize: 56 }}>🔧</div>
-      <div className="t-lg fw-black">{lang === 'ru' ? 'Технические работы' : 'Maintenance'}</div>
+      <div
+        className="t-lg fw-black"
+        onClick={() => {
+          const n = taps + 1
+          setTaps(n)
+          if (n >= 7 && onOverride) onOverride()
+        }}
+      >
+        {lang === 'ru' ? 'Технические работы' : 'Maintenance'}
+      </div>
       <div className="t-sm t-muted">{lang === 'ru' ? 'Магазин временно недоступен. Вернитесь через несколько минут.' : 'The shop is temporarily unavailable. Please check back in a few minutes.'}</div>
     </div>
   )
@@ -84,7 +94,9 @@ function AppInner() {
   const showNav = !HIDE_NAV.some((p) => location.pathname.startsWith(p)) &&
     !location.pathname.startsWith('/product/')
 
-  if (maintenance && !isAdminRoute) return <MaintenanceScreen />
+  if (maintenance && !isAdminRoute) {
+    return <MaintenanceScreen onOverride={() => useStore.setState({ maintenance: false })} />
+  }
 
   if (isAdminRoute) {
     return (
