@@ -156,6 +156,10 @@
 .adm3-nav .nav-item {
   opacity: 0.55;
   transition: opacity 0.15s;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  min-height: 52px;
 }
 
 .adm3-nav .nav-item.is-active {
@@ -284,12 +288,27 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
+/* Reset native button styles inside admin shell */
+.admin-shell.adm3 button {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.admin-shell.adm3 button:focus-visible {
+  outline: 2px solid rgba(61, 220, 132, 0.45);
+  outline-offset: 2px;
+}
+
 /* Menu list */
 .adm-menu-item {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 64px;
   padding: 12px 14px;
   border: 1px solid var(--adm-border);
   border-radius: var(--adm-radius);
@@ -343,9 +362,13 @@
 }
 
 .adm-menu-badge {
+  flex-shrink: 0;
+  align-self: center;
   font-size: 11px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 3px 8px;
+  min-width: 22px;
+  text-align: center;
   border-radius: 6px;
   background: var(--adm-accent-dim);
   color: var(--adm-accent);
@@ -401,6 +424,10 @@
 }
 
 .adm-grid-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
   padding: 14px 8px;
   border-radius: var(--adm-radius-sm);
   border: 1px solid var(--adm-border);
@@ -452,6 +479,12 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.adm-btn-row > .adm-btn {
+  flex: 1 1 auto;
+  min-height: 44px;
 }
 
 /* Overlay / palette (reuse structure, new colors) */

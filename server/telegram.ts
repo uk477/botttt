@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { ENV } from "./env.js";
+import {
+  buildUserNotification,
+  type NotifyLang,
+  type UserNotifyKind,
+  type UserNotifyPayload,
+} from "../shared/telegramTemplates.js";
 
 const ADMIN_SALT = "fanvue:admin:v1:";
 const TG_API = `https://api.telegram.org/bot${ENV.botToken}`;
@@ -233,4 +239,14 @@ export async function notifyUserWithButton(
     inline_keyboard: [[{ text: buttonText, web_app: { url } }]],
   });
   return ok;
+}
+
+export async function notifyUserTemplated(
+  chatId: number,
+  kind: UserNotifyKind,
+  params: UserNotifyPayload,
+  lang: NotifyLang = "ru",
+): Promise<boolean> {
+  const { text, buttonText } = buildUserNotification(kind, params, lang);
+  return notifyUserWithButton(chatId, text, buttonText);
 }

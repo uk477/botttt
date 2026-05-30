@@ -90,7 +90,8 @@ export const api = {
   adminStats:            ()                        => get('/api/admin/stats'),
   adminIssueBalance:     (uid: number, amt: number) => post(`/api/admin/user/${uid}/balance`, { amount: amt }),
   adminSupport:          ()                        => get('/api/admin/support'),
-  adminReply:            (uid: number, text: string) => post(`/api/admin/support/${uid}`, { text }),
+  adminReply:            (uid: number, text: string, lang?: 'ru' | 'en') =>
+    post(`/api/admin/support/${uid}`, { text, lang }),
   adminGetSettings:      ()                        => get('/api/admin/settings'),
   adminSetSettings:      (b: object)               => post('/api/admin/settings', b),
   adminGetProducts:      ()                        => get<{ products: unknown[]; categories: unknown[]; pinned: number[] }>('/api/admin/products'),

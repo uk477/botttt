@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import CryptoLogo from '../components/CryptoLogo'
 import { useStore, CRYPTO_OPTIONS } from '../store'
-import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
+import { tgNotify, notifyUserTemplated, notifyAdmin } from '../utils/tgNotify'
 import type { RefWithdrawal } from '../store/types'
 import { AdminSegmented, AdminStat, AdminEmpty, AdminCard } from './ui'
 
@@ -59,17 +59,14 @@ function TxidInput({ id }: { id: string }) {
             if (!w) return
             completeRefWithdrawal(id, tx || '')
             const net = CRYPTO_OPTIONS.find((o) => o.id === w.network)
-            const userMsg = [
-              '✅ Реферальная выплата одобрена!',
-              '',
-              `💰 Сумма: $${w.amount.toFixed(2)}`,
-              `💎 Валюта: ${net?.name ?? w.network.toUpperCase()}`,
-              tx ? `🔗 TxID: ${tx}` : '',
-              '',
-              'Спасибо, что используете Fanvue Market!',
-              'Рады сотрудничеству 🤝',
-            ].filter(Boolean).join('\n')
-            if (w.uid) notifyUserWithButton(w.uid, userMsg, 'Открыть баланс')
+            if (w.uid) {
+              notifyUserTemplated(w.uid, 'ref_approved', {
+                amountUsd: w.amount,
+                cryptoName: net?.name ?? w.network.toUpperCase(),
+                txid: tx || undefined,
+                refId: w.id,
+              }, lang)
+            }
             notifyAdmin(`✅ Вывод одобрен\n🆔 ${w.id}\n💵 $${w.amount.toFixed(2)} · ${net?.name ?? w.network}\n${tx ? `🔗 ${tx}` : ''}`)
           }}
         >
@@ -111,14 +108,11 @@ function TxidInput({ id }: { id: string }) {
                 rejectReason: trimmed,
               })
               if (w?.uid) {
-                notifyUserWithButton(w.uid, [
-                  '<b>Заявка на вывод отклонена</b>',
-                  '',
-                  `🆔 ${w.id}`,
-                  `💵 $${w.amount.toFixed(2)} возвращены на реф. баланс`,
-                  '',
-                  `📝 Причина: ${trimmed}`,
-                ].join('\n'), 'Открыть приложение')
+                notifyUserTemplated(w.uid, 'ref_rejected', {
+                  amountUsd: w.amount,
+                  refId: w.id,
+                  reason: trimmed,
+                }, lang)
               }
               notifyAdmin([
                 '❌ Вывод отклонён',

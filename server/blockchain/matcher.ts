@@ -1,5 +1,5 @@
 import { orders, transactions, users, adminLogs, type OrderRow } from "../db.js";
-import { notifyAdmin, notifyUserWithButton } from "../telegram.js";
+import { notifyAdmin, notifyUserTemplated } from "../telegram.js";
 
 export interface IncomingTx {
   tx_hash: string;
@@ -78,12 +78,14 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
               : `<b>Оплата подтверждена</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}\n<code>${tx.tx_hash.slice(0, 16)}…</code>`,
           );
 
-          notifyUserWithButton(
+          notifyUserTemplated(
             order.uid,
-            isDeposit
-              ? `<b>Депозит зачислен</b>\n\n<b>$${order.amount_usd}</b> уже на вашем балансе.\n${time}`
-              : `<b>Оплата получена</b>\n\nЗаказ <code>${order.id}</code> на сумму <b>$${order.amount_usd}</b> оплачен.\nМы начали обработку. ${time}`,
-            isDeposit ? "Открыть баланс" : "Посмотреть заказ",
+            isDeposit ? "deposit_credited" : "payment_received",
+            {
+              amountUsd: order.amount_usd,
+              orderId: isDeposit ? undefined : order.id,
+              time,
+            },
           );
         }
       }, 5000);

@@ -1,24 +1,26 @@
 import { CONFIG } from '../config'
 import { getTelegramInitData } from './security'
+import type { NotifyLang, UserNotifyKind, UserNotifyPayload } from '../../../shared/telegramTemplates'
 
 /**
  * Sends a Telegram notification via the backend /api/notify endpoint.
- *
- * Two modes:
- * - Admin notification (no userChatId) → goes to NOTIFY_CHAT_ID (admin's bot/group)
- * - User notification  (with userChatId) → goes to user's Telegram DM via the bot
- *
- * The backend is expected to:
- *   POST body: { text, initData, chatId? }
- *   - If chatId is provided → send message to that chat
- *   - Otherwise → send to the configured admin chat
  */
 
 const NOTIFY_URL = CONFIG.apiUrl
   ? `${CONFIG.apiUrl}/api/notify`
   : '/api/notify'
 
-async function send(text: string, chatId?: number, buttonText?: string): Promise<void> {
+type NotifyBody = {
+  text?: string
+  initData: string
+  chatId?: number
+  buttonText?: string
+  template?: UserNotifyKind
+  params?: UserNotifyPayload
+  lang?: NotifyLang
+}
+
+async function post(body: NotifyBody): Promise<void> {
   try {
     const res = await fetch(NOTIFY_URL, {
       method: 'POST',
@@ -26,16 +28,11 @@ async function send(text: string, chatId?: number, buttonText?: string): Promise
         'Content-Type': 'application/json',
         'X-Telegram-Init-Data': getTelegramInitData(),
       },
-      body: JSON.stringify({
-        text,
-        initData: getTelegramInitData(),
-        ...(chatId ? { chatId } : {}),
-        ...(buttonText ? { buttonText } : {}),
-      }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      console.warn(`[tgNotify] ${res.status} ${body}`)
+      const errBody = await res.text().catch(() => '')
+      console.warn(`[tgNotify] ${res.status} ${errBody}`)
     }
   } catch (e) {
     console.warn('[tgNotify] fetch failed:', e)
@@ -44,19 +41,30 @@ async function send(text: string, chatId?: number, buttonText?: string): Promise
 
 /** Notification to admin (your personal bot / admin group) */
 export function notifyAdmin(text: string): void {
-  send(text)
+  post({ text, initData: getTelegramInitData() })
 }
 
 /** Notification to a specific user's Telegram DM (plain text) */
 export function notifyUser(chatId: number, text: string): void {
   if (!chatId || chatId <= 0) return
-  send(text, chatId)
+  post({ text, initData: getTelegramInitData(), chatId })
 }
 
-/** Notification to user with an inline "Open app" button */
+/** Templated user notification with inline app button */
+export function notifyUserTemplated(
+  chatId: number,
+  template: UserNotifyKind,
+  params: UserNotifyPayload = {},
+  lang: NotifyLang = 'ru',
+): void {
+  if (!chatId || chatId <= 0) return
+  post({ initData: getTelegramInitData(), chatId, template, params, lang })
+}
+
+/** @deprecated Prefer notifyUserTemplated — kept for custom broadcast text */
 export function notifyUserWithButton(chatId: number, text: string, buttonText = 'Открыть приложение'): void {
   if (!chatId || chatId <= 0) return
-  send(text, chatId, buttonText)
+  post({ text, initData: getTelegramInitData(), chatId, buttonText })
 }
 
 export async function tgNotify(text: string, userChatId?: number): Promise<void> {

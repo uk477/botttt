@@ -4,7 +4,7 @@ import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useTelegram } from '../hooks/useTelegram'
-import { tgNotify, notifyUserWithButton, notifyAdmin } from '../utils/tgNotify'
+import { tgNotify, notifyAdmin, notifyUserTemplated } from '../utils/tgNotify'
 import { CONFIG } from '../config'
 import type { SupportMessage, SupportTicket } from '../store/types'
 import OrderReceiptMessage from '../components/OrderReceiptMessage'
@@ -271,16 +271,9 @@ export default function AdminSupport() {
       created: new Date().toISOString(), reply_to: replyTo?.id, ticket_id: activeTicket?.id,
     })
     if (api.isEnabled() && targetUid) {
-      api.adminReply(targetUid, trimmed)
+      api.adminReply(targetUid, trimmed, lang)
     }
     setReply(''); setReplyTo(null)
-    if (openUid) {
-      notifyUserWithButton(
-        openUid,
-        `<b>Ответ от поддержки</b>\n\nВаше обращение рассмотрено. Ответ доступен в приложении.`,
-        'Посмотреть ответ',
-      )
-    }
   }
 
   const insertCanned = (txt: string) => {
@@ -310,11 +303,10 @@ export default function AdminSupport() {
     setOrderStatus(chatOrder.id, 'completed')
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     if (openUid) {
-      notifyUserWithButton(
-        openUid,
-        `<b>Заказ выдан</b>\n\n${chatOrder.product_title ?? 'Товар'} · $${chatOrder.amount.toFixed(2)}\n\nДанные для доступа уже в приложении.`,
-        'Открыть заказ',
-      )
+      notifyUserTemplated(openUid, 'order_delivered', {
+        productTitle: chatOrder.product_title ?? (lang === 'ru' ? 'Товар' : 'Product'),
+        amountUsd: chatOrder.amount,
+      }, lang)
     }
     notifyAdmin(
       `<b>Выдача</b>\n\n${chatOrder.product_title ?? 'Товар'} · $${chatOrder.amount.toFixed(2)}\nUID: ${openUid ?? '—'} · ${time}`,

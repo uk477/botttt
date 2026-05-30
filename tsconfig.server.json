@@ -6,12 +6,12 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "outDir": "server/dist",
-    "rootDir": "server",
+    "rootDir": ".",
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["server/**/*.ts"]
+  "include": ["server/**/*.ts", "shared/**/*.ts"]
 }

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyUser, notifyUserWithButton } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyUserTemplated, notifyUserWithButton } from "../telegram.js";
+import type { NotifyLang } from "../../shared/telegramTemplates.js";
 import {
   orders,
   users,
@@ -352,7 +353,9 @@ router.post("/api/admin/support/:uid", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid" }); return;
   }
   support.addMessage({ uid, sender: "admin", text });
-  await notifyUserWithButton(uid, text);
+  const notifyLang: NotifyLang =
+    typeof req.body?.lang === "string" && req.body.lang === "en" ? "en" : "ru";
+  await notifyUserTemplated(uid, "support_reply", { preview: text }, notifyLang);
   res.json({ ok: true });
 });
 
@@ -449,10 +452,18 @@ router.patch("/api/admin/ref-withdrawal/:id", (req: Request, res: Response) => {
   const { action, txid, reason } = req.body as { action: string; txid?: string; reason?: string };
   if (action === "approve") {
     refWithdrawals.approve(rw.id, txid || "");
-    notifyUser(rw.uid, `✅ Вывод $${rw.amount} одобрен! TX: ${txid || "—"}`);
+    notifyUserTemplated(rw.uid, "ref_approved", {
+      amountUsd: rw.amount,
+      txid: txid || undefined,
+      refId: rw.id,
+    });
   } else if (action === "reject") {
     refWithdrawals.reject(rw.id, reason || "");
-    notifyUser(rw.uid, `❌ Вывод $${rw.amount} отклонён. ${reason || ""}`);
+    notifyUserTemplated(rw.uid, "ref_rejected", {
+      amountUsd: rw.amount,
+      refId: rw.id,
+      reason: reason || undefined,
+    });
   }
 
   res.json({ ok: true });

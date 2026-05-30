@@ -1,6 +1,14 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyAdmin, notifyUser, notifyUserWithButton } from "../telegram.js";
+import {
+  verifyInitData,
+  isAdmin,
+  notifyAdmin,
+  notifyUser,
+  notifyUserWithButton,
+  notifyUserTemplated,
+} from "../telegram.js";
+import type { NotifyLang, UserNotifyKind, UserNotifyPayload } from "../../shared/telegramTemplates.js";
 
 const router = Router();
 
@@ -21,15 +29,14 @@ router.post("/api/notify", notifyLimiter, async (req: Request, res: Response) =>
     return;
   }
 
-  const { text, chatId, buttonText } = req.body as {
+  const { text, chatId, buttonText, template, params, lang } = req.body as {
     text?: string;
     chatId?: number;
     buttonText?: string;
+    template?: UserNotifyKind;
+    params?: UserNotifyPayload;
+    lang?: NotifyLang;
   };
-  if (!text || typeof text !== "string" || text.length > 4000) {
-    res.status(400).json({ error: "Invalid text" });
-    return;
-  }
 
   if (chatId) {
     if (!isAdmin(user.id)) {
@@ -40,12 +47,30 @@ router.post("/api/notify", notifyLimiter, async (req: Request, res: Response) =>
       res.status(400).json({ error: "Invalid chatId" });
       return;
     }
-    const ok = buttonText
-      ? await notifyUserWithButton(chatId, text, buttonText)
-      : await notifyUser(chatId, text);
+    const notifyLang: NotifyLang = lang === "en" ? "en" : "ru";
+    let ok: boolean;
+    if (template) {
+      ok = await notifyUserTemplated(chatId, template, params ?? {}, notifyLang);
+    } else {
+      if (!text || typeof text !== "string" || text.length > 4000) {
+        res.status(400).json({ error: "Invalid text" });
+        return;
+      }
+      ok = buttonText
+        ? await notifyUserWithButton(chatId, text, buttonText)
+        : await notifyUser(chatId, text);
+    }
     console.log(`[notify] user chatId=${chatId} ok=${ok}`);
     res.json({ ok });
-  } else {
+    return;
+  }
+
+  if (!text || typeof text !== "string" || text.length > 4000) {
+    res.status(400).json({ error: "Invalid text" });
+    return;
+  }
+
+  {
     const ok = await notifyAdmin(text);
     console.log(`[notify] admin ok=${ok}`);
     res.json({ ok });

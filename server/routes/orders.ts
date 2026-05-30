@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyAdmin, notifyUserWithButton } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
 import { orders } from "../db.js";
 import { ENV } from "../env.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
@@ -137,12 +137,15 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
       : `<b>Новый заказ</b>\n\n${userName} · $${uniqueUsd.toFixed(2)}\n${network.toUpperCase()} · ${time}\n<code>${id}</code>`,
   );
 
-  notifyUserWithButton(
+  notifyUserTemplated(
     user.id,
-    isDeposit
-      ? `<b>Депозит создан</b>\n\nСумма: <b>$${uniqueUsd.toFixed(2)}</b>\nСеть: ${network.toUpperCase()}\n\nПереведите указанную сумму на адрес в приложении. После подтверждения сети средства зачислятся автоматически.`
-      : `<b>Заказ оформлен</b>\n\nСумма: <b>$${uniqueUsd.toFixed(2)}</b>\nСеть: ${network.toUpperCase()}\nНомер: <code>${id}</code>\n\nОплатите заказ в приложении. После подтверждения оплаты мы начнём обработку.`,
-    isDeposit ? "Перейти к оплате" : "Оплатить заказ",
+    isDeposit ? "deposit_created" : "order_created",
+    {
+      amountUsd: uniqueUsd,
+      network,
+      orderId: isDeposit ? undefined : id,
+    },
+    user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en",
   );
 
   res.json({
