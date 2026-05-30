@@ -177,24 +177,7 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
         }),
   );
 
-  notifyUserTemplated(
-    user.id,
-    isDeposit ? "deposit_created" : "order_created",
-    isDeposit
-      ? {
-          amountUsd: uniqueUsd,
-          amountCrypto: amountCrypto,
-          network,
-          orderId: id,
-          walletAddress: wallet,
-        }
-      : {
-          amountUsd: uniqueUsd,
-          network,
-          orderId: id,
-        },
-    user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en",
-  );
+  // Покупателю не шлём «заказ создан» — только после подтверждения оплаты (finalizeCompletedOrder).
 
   res.json({
     id,
@@ -330,7 +313,7 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   notifyUserTemplated(
     user.id,
     "payment_received",
-    { amountUsd: total, orderId: id, productTitle: title },
+    { amountUsd: total, orderId: id, productTitle: title, network: "balance", time },
     lang,
   );
 

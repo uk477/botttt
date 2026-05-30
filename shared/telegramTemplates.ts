@@ -61,10 +61,68 @@ function notice(lang: NotifyLang, subjectRu: string, subjectEn: string, lines: s
   return body ? `<b>${BRAND}</b>\n${subject}\n\n${body}` : `<b>${BRAND}</b>\n${subject}`
 }
 
+/** Buyer DM: brand, italic headline, dot-separated rows, optional footer — no buttons */
+function userMessage(
+  lang: NotifyLang,
+  headlineRu: string,
+  headlineEn: string,
+  rows: string[],
+  footerRu?: string,
+  footerEn?: string,
+): string {
+  const headline = t(lang, headlineRu, headlineEn)
+  const body = rows.filter(Boolean).join('\n')
+  const footer =
+    footerRu && footerEn ? `\n\n${t(lang, footerRu, footerEn)}` : ''
+  return `<b>${BRAND}</b>\n<i>${headline}</i>\n\n${body}${footer}`
+}
+
+function row(lang: NotifyLang, labelRu: string, labelEn: string, value: string, code = false): string {
+  const label = t(lang, labelRu, labelEn)
+  const v = code ? `<code>${escapeHtml(value)}</code>` : escapeHtml(value)
+  return `${label} · ${v}`
+}
+
 function field(lang: NotifyLang, labelRu: string, labelEn: string, value: string, code = false): string {
   const label = t(lang, labelRu, labelEn)
   const v = code ? `<code>${escapeHtml(value)}</code>` : escapeHtml(value)
   return `${label}: ${v}`
+}
+
+function paymentSuccessRows(lang: NotifyLang, params: UserNotifyPayload): string[] {
+  const net = (params.network ?? 'trc20').toLowerCase()
+  if (net === 'balance') {
+    const rows: string[] = []
+    if (params.orderId) rows.push(row(lang, 'Заказ', 'Order', params.orderId, true))
+    if (params.amountUsd != null) {
+      rows.push(row(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`, true))
+    }
+    rows.push(row(lang, 'Оплата', 'Payment', t(lang, 'Баланс аккаунта', 'Account balance')))
+    if (params.time) rows.push(row(lang, 'Время', 'Time', params.time))
+    return rows
+  }
+
+  const asset = formatPaymentAsset(net)
+  const amountStr =
+    params.amountCrypto != null
+      ? typeof params.amountCrypto === 'number'
+        ? formatPayCryptoAmount(params.amountCrypto, net)
+        : params.amountCrypto
+      : params.amountUsd != null
+        ? formatPayCryptoAmount(params.amountUsd, net)
+        : ''
+  const rows: string[] = []
+  if (params.orderId) {
+    rows.push(row(lang, 'Заявка', 'Reference', params.orderId, true))
+  }
+  if (amountStr) {
+    rows.push(row(lang, 'Сумма', 'Amount', amountStr, true))
+  }
+  rows.push(row(lang, 'Сеть', 'Network', asset))
+  if (params.time) {
+    rows.push(row(lang, 'Время', 'Time', params.time))
+  }
+  return rows
 }
 
 /** Human-readable asset + network for payment notifications */
@@ -129,145 +187,134 @@ export function buildUserNotification(
   switch (kind) {
     case 'support_reply': {
       const preview = params.preview?.trim()
-      const lines = preview
-        ? [field(lang, 'Сообщение', 'Message', truncate(preview, 320))]
+      const rows = preview
+        ? [row(lang, 'Сообщение', 'Message', truncate(preview, 320))]
         : []
       return {
-        text: notice(
+        text: userMessage(
           lang,
-          'Ответ службы поддержки',
+          'Ответ поддержки',
           'Support reply',
-          [
-            ...lines,
-            '',
-            t(
-              lang,
-              'Откройте чат в приложении, чтобы продолжить диалог.',
-              'Open the in-app chat to continue.',
-            ),
-          ],
+          rows,
+          'Продолжите диалог в разделе «Поддержка» в приложении.',
+          'Continue the conversation in Support inside the app.',
         ),
-        buttonText: btn(lang, 'Чат поддержки', 'Support chat'),
       }
     }
 
     case 'order_created':
-      return {
-        text: notice(lang, 'Заказ создан', 'Order created', [
-          params.orderId ? field(lang, 'Номер', 'Order ID', params.orderId, true) : '',
-          params.amountUsd != null
-            ? field(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          params.network ? field(lang, 'Оплата', 'Payment', formatPaymentAsset(params.network)) : '',
-          '',
-          t(
-            lang,
-            'Оплатите заказ в приложении. Обработка начнётся после подтверждения транзакции.',
-            'Complete payment in the app. Processing starts after on-chain confirmation.',
-          ),
-        ]),
-        buttonText: btn(lang, 'Оплатить', 'Pay'),
-      }
-
-    case 'deposit_created': {
-      const asset = params.network ? formatPaymentAsset(params.network) : 'USDT (TRC20)'
-      return {
-        text: notice(lang, 'Счёт на пополнение', 'Balance top-up invoice', [
-          field(lang, 'Сеть', 'Network', asset),
-          payAmountLine(lang, params),
-          params.walletAddress ? field(lang, 'Адрес', 'Address', params.walletAddress, true) : '',
-          params.orderId ? field(lang, 'Заявка', 'Reference', params.orderId, true) : '',
-          params.amountUsd != null
-            ? field(lang, 'Эквивалент', 'USD equivalent', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          '',
-          t(
-            lang,
-            'Переведите указанную сумму без изменений. Зачисление — после подтверждения в сети.',
-            'Send the exact amount shown. Funds are credited after network confirmation.',
-          ),
-        ]),
-      }
-    }
+    case 'deposit_created':
+      return { text: '' }
 
     case 'payment_received':
       return {
-        text: notice(lang, 'Оплата получена', 'Payment received', [
-          params.orderId ? field(lang, 'Заказ', 'Order', params.orderId, true) : '',
-          params.amountUsd != null
-            ? field(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          params.time ? field(lang, 'Время', 'Time', params.time) : '',
-          '',
-          t(lang, 'Заказ передан в обработку.', 'Your order is being processed.'),
-        ]),
-        buttonText: btn(lang, 'Статус заказа', 'Order status'),
+        text: userMessage(
+          lang,
+          'Оплата подтверждена',
+          'Payment confirmed',
+          paymentSuccessRows(lang, params),
+          'Заказ принят в обработку. Детали — в приложении.',
+          'Your order is being processed. Details are in the app.',
+        ),
       }
 
-    case 'deposit_credited':
-      return {
-        text: notice(lang, 'Баланс пополнен', 'Balance credited', [
-          params.amountUsd != null
-            ? field(lang, 'Зачислено', 'Credited', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          params.time ? field(lang, 'Время', 'Time', params.time) : '',
-          '',
-          t(lang, 'Средства доступны в приложении.', 'Funds are available in the app.'),
-        ]),
-        buttonText: btn(lang, 'Открыть приложение', 'Open app'),
+    case 'deposit_credited': {
+      const rows = paymentSuccessRows(lang, params)
+      if (params.amountUsd != null) {
+        rows.push(
+          row(
+            lang,
+            'Баланс',
+            'Balance',
+            `$${params.amountUsd.toFixed(2)}`,
+            true,
+          ),
+        )
       }
+      return {
+        text: userMessage(
+          lang,
+          'Пополнение зачислено',
+          'Top-up completed',
+          rows,
+          'Средства доступны на балансе в приложении.',
+          'Funds are available on your in-app balance.',
+        ),
+      }
+    }
 
-    case 'order_delivered':
-      return {
-        text: notice(lang, 'Заказ выполнен', 'Order fulfilled', [
-          params.productTitle ? field(lang, 'Товар', 'Product', params.productTitle) : '',
-          params.amountUsd != null
-            ? field(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          '',
-          t(lang, 'Данные доступа — в приложении.', 'Access details are in the app.'),
-        ]),
-        buttonText: btn(lang, 'Открыть заказ', 'View order'),
+    case 'order_delivered': {
+      const rows: string[] = []
+      if (params.productTitle) {
+        rows.push(row(lang, 'Товар', 'Product', params.productTitle))
       }
+      if (params.amountUsd != null) {
+        rows.push(
+          row(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`, true),
+        )
+      }
+      return {
+        text: userMessage(
+          lang,
+          'Заказ выполнен',
+          'Order fulfilled',
+          rows,
+          'Данные для доступа — в карточке заказа в приложении.',
+          'Access details are in your order in the app.',
+        ),
+      }
+    }
 
-    case 'ref_approved':
-      return {
-        text: notice(lang, 'Реферальная выплата', 'Referral payout', [
-          params.refId ? field(lang, 'Заявка', 'Reference', params.refId, true) : '',
-          params.amountUsd != null
-            ? field(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`)
-            : '',
-          params.cryptoName ? field(lang, 'Сеть', 'Network', params.cryptoName) : '',
-          params.txid ? field(lang, 'Транзакция', 'Transaction', truncate(params.txid, 48), true) : '',
-          '',
-          t(lang, 'Выплата одобрена и отправлена.', 'Payout approved and sent.'),
-        ]),
-        buttonText: btn(lang, 'Реферальный баланс', 'Referral balance'),
+    case 'ref_approved': {
+      const rows: string[] = []
+      if (params.refId) rows.push(row(lang, 'Заявка', 'Reference', params.refId, true))
+      if (params.amountUsd != null) {
+        rows.push(row(lang, 'Сумма', 'Amount', `$${params.amountUsd.toFixed(2)}`, true))
       }
+      if (params.cryptoName) rows.push(row(lang, 'Сеть', 'Network', params.cryptoName))
+      if (params.txid) {
+        rows.push(row(lang, 'Транзакция', 'Transaction', truncate(params.txid, 48), true))
+      }
+      return {
+        text: userMessage(
+          lang,
+          'Реферальная выплата отправлена',
+          'Referral payout sent',
+          rows,
+        ),
+      }
+    }
 
-    case 'ref_rejected':
-      return {
-        text: notice(lang, 'Вывод отклонён', 'Withdrawal declined', [
-          params.refId ? field(lang, 'Заявка', 'Reference', params.refId, true) : '',
-          params.amountUsd != null
-            ? field(
-                lang,
-                'Сумма',
-                'Amount',
-                `$${params.amountUsd.toFixed(2)} (${t(lang, 'возврат на баланс', 'returned to balance')})`,
-              )
-            : '',
-          params.reason
-            ? field(lang, 'Причина', 'Reason', truncate(params.reason, 400))
-            : '',
-        ]),
-        buttonText: btn(lang, 'Открыть приложение', 'Open app'),
+    case 'ref_rejected': {
+      const rows: string[] = []
+      if (params.refId) rows.push(row(lang, 'Заявка', 'Reference', params.refId, true))
+      if (params.amountUsd != null) {
+        rows.push(
+          row(
+            lang,
+            'Сумма',
+            'Amount',
+            `$${params.amountUsd.toFixed(2)} · ${t(lang, 'возврат на баланс', 'returned')}`,
+            true,
+          ),
+        )
       }
+      if (params.reason) {
+        rows.push(row(lang, 'Причина', 'Reason', truncate(params.reason, 400)))
+      }
+      return {
+        text: userMessage(
+          lang,
+          'Вывод отклонён',
+          'Withdrawal declined',
+          rows,
+        ),
+      }
+    }
 
     default:
       return {
-        text: notice(lang, 'Уведомление', 'Notification', []),
-        buttonText: btn(lang, 'Открыть приложение', 'Open app'),
+        text: userMessage(lang, 'Уведомление', 'Notification', []),
       }
   }
 }

@@ -64,12 +64,17 @@ export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolea
         }),
   );
 
+  const cryptoAmt =
+    done.amount_crypto > 0 ? done.amount_crypto : done.amount_usd;
+
   notifyUserTemplated(
     order.uid,
     isDeposit ? "deposit_credited" : "payment_received",
     {
       amountUsd: order.amount_usd,
-      orderId: isDeposit ? undefined : order.id,
+      amountCrypto: cryptoAmt,
+      network: order.network,
+      orderId: order.id,
       time,
     },
   );

@@ -283,6 +283,7 @@ export async function notifyUserTemplated(
   lang: NotifyLang = "ru",
 ): Promise<boolean> {
   const { text, buttonText } = buildUserNotification(kind, params, lang);
-  if (!buttonText) return sendMessage(chatId, text);
+  if (!text?.trim()) return true;
+  if (!buttonText?.trim()) return sendMessage(chatId, text);
   return notifyUserWithButton(chatId, text, buttonText);
 }
