@@ -1,15 +1,5 @@
-import { CONFIG } from '../config'
 import { getTelegramInitData } from '../utils/security'
-
-/** Same-origin fallback when VITE_API_URL was not set at build time (typical VPS deploy). */
-function resolveApiBase(): string {
-  const configured = (CONFIG.apiUrl ?? '').trim().replace(/\/+$/, '')
-  if (configured) return configured
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin
-  }
-  return ''
-}
+import { resolveApiBase } from '../utils/apiBase'
 
 const base = resolveApiBase()
 const TIMEOUT_MS = 12_000
@@ -123,6 +113,14 @@ export const api = {
   getMyOrders:    ()                 => get('/api/orders'),
   getOrder:       (id: string)       => get(`/api/order/${id}`),
   createOrder:    (b: object)        => post('/api/order', b),
+  cancelOrder:    (id: string)       => post(`/api/order/${encodeURIComponent(id)}/cancel`, {}),
+  purchaseBalance: (b: object)      => post<{
+    ok: boolean
+    order?: Record<string, unknown>
+    balance?: number
+    spent?: number
+    purchases?: number
+  }>('/api/purchase/balance', b),
 
   getMessages:    ()                 => get('/api/support/messages'),
   sendMessage:    (text: string)     => post('/api/support/message', { text }),
@@ -151,4 +149,5 @@ export const api = {
   adminRefWithdrawals:   ()                        => get('/api/admin/ref-withdrawals'),
   adminSetRefStatus:     (id: string, b: object)   => patch(`/api/admin/ref-withdrawal/${id}`, b),
   adminLogs:             ()                        => get('/api/admin/logs'),
+  adminAddLog:           (log: object)             => post('/api/admin/log', log),
 }

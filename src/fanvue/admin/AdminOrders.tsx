@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { useStore } from '../store'
+import { api } from '../store/api'
 import { useT } from '../i18n'
 import { useToast } from '../components/Toast'
 import { useTelegram } from '../hooks/useTelegram'
@@ -32,7 +33,11 @@ export default function AdminOrders() {
   const [balAmt, setBalAmt]   = useState('')
   const [balSent, setBalSent] = useState(false)
   const [deliveryDraft, setDeliveryDraft] = useState('')
-  const updateBalance = useStore((s) => s.updateBalance)
+  const syncAdminData = useStore((s) => s.syncAdminData)
+
+  useEffect(() => {
+    syncAdminData()
+  }, [syncAdminData])
 
   // Sync draft when opening a different order
   useEffect(() => {
@@ -69,10 +74,20 @@ export default function AdminOrders() {
     return list
   }, [orders, filter, kind])
 
-  const handleIssueBalance = () => {
+  const handleIssueBalance = async () => {
     const amt = parseFloat(balAmt)
-    if (!amt || amt <= 0) return
-    updateBalance(amt)
+    if (!amt || amt <= 0 || !open?.uid) {
+      toast.show(lang === 'ru' ? 'Нет UID пользователя' : 'Missing user UID', 'error')
+      return
+    }
+    if (api.isEnabled()) {
+      const res = await api.adminIssueBalance(open.uid, amt)
+      if (!res || typeof res !== 'object') {
+        toast.show(lang === 'ru' ? 'Ошибка сервера' : 'Server error', 'error')
+        return
+      }
+      await syncAdminData()
+    }
     haptic('success')
     toast.show(lang === 'ru' ? `+$${amt.toFixed(2)} зачислено` : `+$${amt.toFixed(2)} credited`, 'success')
     setBalSent(true)
@@ -80,9 +95,19 @@ export default function AdminOrders() {
     setTimeout(() => setBalSent(false), 2500)
   }
 
-  const handleVerify = (o: Order) => {
+  const handleVerify = async (o: Order) => {
     haptic('success')
-    setOrderStatus(o.id, 'completed')
+    if (api.isEnabled()) {
+      const status = o.status === 'pending' && o.kind === 'buy' ? 'paid' : 'completed'
+      const res = await api.adminPatchOrder(o.id, { status })
+      if (!res) {
+        toast.show(lang === 'ru' ? 'Ошибка сервера' : 'Server error', 'error')
+        return
+      }
+      await syncAdminData()
+    } else {
+      setOrderStatus(o.id, 'completed')
+    }
     addLog({
       ts: new Date().toISOString(),
       uid: 0,
@@ -97,9 +122,18 @@ export default function AdminOrders() {
     setOpen(null)
   }
 
-  const handleReject = (o: Order) => {
+  const handleReject = async (o: Order) => {
     haptic('error')
-    setOrderStatus(o.id, 'failed')
+    if (api.isEnabled()) {
+      const res = await api.adminPatchOrder(o.id, { status: 'expired' })
+      if (!res) {
+        toast.show(lang === 'ru' ? 'Ошибка сервера' : 'Server error', 'error')
+        return
+      }
+      await syncAdminData()
+    } else {
+      setOrderStatus(o.id, 'failed')
+    }
     addLog({
       ts: new Date().toISOString(),
       uid: 0,
@@ -116,9 +150,14 @@ export default function AdminOrders() {
 
   const handleDelete = (o: Order) => setConfirmDelete(o)
 
-  const doDelete = () => {
+  const doDelete = async () => {
     if (!confirmDelete) return
-    deleteOrder(confirmDelete.id)
+    if (api.isEnabled()) {
+      await api.adminDeleteOrder(confirmDelete.id)
+      await syncAdminData()
+    } else {
+      deleteOrder(confirmDelete.id)
+    }
     haptic('success')
     toast.show(lang === 'ru' ? 'Удалено' : 'Deleted', 'info')
     setConfirmDelete(null)

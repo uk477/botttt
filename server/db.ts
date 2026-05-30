@@ -139,6 +139,13 @@ const userStmts = {
   `),
   get: db.prepare(`SELECT * FROM users WHERE uid = ?`),
   credit: db.prepare(`UPDATE users SET balance = balance + @amount WHERE uid = @uid`),
+  debitPurchase: db.prepare(`
+    UPDATE users SET
+      balance = balance - @amount,
+      spent = spent + @amount,
+      purchases = purchases + @qty
+    WHERE uid = @uid AND balance >= @amount - 0.001
+  `),
 };
 
 db.exec(`
@@ -257,6 +264,12 @@ export const users = {
   credit(uid: number, amount: number): UserRow {
     userStmts.upsert.run({ uid, username: null, full_name: null });
     userStmts.credit.run({ uid, amount });
+    return userStmts.get.get(uid) as UserRow;
+  },
+  debitPurchase(uid: number, amount: number, qty: number): UserRow | null {
+    userStmts.upsert.run({ uid, username: null, full_name: null });
+    const r = userStmts.debitPurchase.run({ uid, amount, qty });
+    if (r.changes === 0) return null;
     return userStmts.get.get(uid) as UserRow;
   },
 };

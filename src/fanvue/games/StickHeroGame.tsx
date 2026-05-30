@@ -3,9 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { getTelegramInitData } from '../utils/security'
-import { CONFIG } from '../config'
-
-const API = CONFIG.apiUrl || ''
+import { apiPath } from '../utils/apiBase'
 const headers = () => ({
   'Content-Type': 'application/json',
   'X-Telegram-Init-Data': getTelegramInitData(),
@@ -89,14 +87,14 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
 
   const fetchBoard = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/api/game/leaderboard`)
+      const r = await fetch(apiPath('/api/game/leaderboard'))
       if (r.ok) setServerBoard(await r.json())
     } catch { /* offline fallback */ }
   }, [])
 
   useEffect(() => {
     fetchBoard()
-    fetch(`${API}/api/game/me`, { headers: headers() })
+    fetch(apiPath('/api/game/me'), { headers: headers() })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
         if (d?.name) {
@@ -115,7 +113,7 @@ export default function StickHeroGame({ onExit }: { onExit: () => void }) {
 
   const submitScore = (name: string, s: number) => {
     addLocalScore(s)
-    fetch(`${API}/api/game/score`, {
+    fetch(apiPath('/api/game/score'), {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify({ name, score: s }),

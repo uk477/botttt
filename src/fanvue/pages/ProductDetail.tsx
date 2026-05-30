@@ -7,6 +7,7 @@ import Confetti from '../components/Confetti'
 import DeliveryBlock, { ManualDeliveryBlock } from '../components/DeliveryBlock'
 import { useToast } from '../components/Toast'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { createOrder, generateOrderId, generateUniqueAmount } from '../utils/payment'
 import { tgNotify } from '../utils/tgNotify'
@@ -42,6 +43,7 @@ export default function ProductDetail() {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const tryAutoFulfill = useStore((s) => s.tryAutoFulfill)
   const addRealSale = useStore((s) => s.addRealSale)
+  const refreshUser = useStore((s) => s.refreshUser)
 
   const product = products.find((p) => p.id === Number(id))
   const [qty, setQty] = useState(1)
@@ -98,13 +100,12 @@ export default function ProductDetail() {
     : (lang === 'ru' ? '1–24 часа' : '1–24h')
 
 
-  const handleBuyWithBalance = () => {
-    if (purchaseLock.current) return
+  const handleBuyWithBalance = async () => {
+    if (purchaseLock.current || !user) return
     if (!rateLimit('purchase', 3, 30_000)) {
       toast.show(lang === 'ru' ? 'Слишком быстро, подождите' : 'Too fast, please wait', 'error')
       return
     }
-    // Re-check balance from store (prevents stale-state race condition)
     const freshBalance = useStore.getState().user?.balance ?? 0
     if (freshBalance < total) {
       toast.show(lang === 'ru' ? 'Недостаточно средств' : 'Insufficient balance', 'error')
@@ -112,40 +113,70 @@ export default function ProductDetail() {
     }
     purchaseLock.current = true
     haptic('success')
-    audit('purchase_balance', user?.uid, { productId: product.id, qty, total })
-    const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
-    const orderId = generateOrderId('buy')
-    addOrder({
-      id: orderId,
-      orderNum: buyCount,
-      kind: 'buy',
-      product_title: title,
-      product_id: product.id,
-      amount: total,
-      status: 'paid',
-      quantity: qty,
-      created: new Date().toISOString(),
-      paid_at: new Date().toISOString(),
-    })
-    updateBalance(-total)
-    if (product.delivery === 'auto') tryAutoFulfill(orderId)
-    if (user) {
-      addRealSale({
-        id: orderId,
-        uid: user.uid,
-        username: user.username,
-        full_name: user.full_name,
-        photo_url: user.photo_url,
-        productTitle: title,
-        productIndex: products.findIndex((p) => p.id === product.id) <= 0 ? 0 : 1,
-        amount: total,
-        ts: Date.now(),
+    audit('purchase_balance', user.uid, { productId: product.id, qty, total })
+
+    if (api.isEnabled()) {
+      const res = await api.purchaseBalance({
+        product_id: product.id,
+        quantity: qty,
+        amount_usd: total,
       })
+      if (!res?.ok || !res.order) {
+        toast.show(lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase', 'error')
+        purchaseLock.current = false
+        return
+      }
+      const o = res.order
+      const orderId = String(o.id)
+      addOrder({
+        id: orderId,
+        orderNum: orders.filter((x) => x.kind === 'buy').length + 1,
+        kind: 'buy',
+        product_title: title,
+        product_id: product.id,
+        amount: total,
+        status: 'completed',
+        quantity: qty,
+        provider: 'balance',
+        created: String(o.created_at ?? new Date().toISOString()),
+        paid_at: String(o.paid_at ?? new Date().toISOString()),
+      })
+      await refreshUser()
+      if (product.delivery === 'auto') tryAutoFulfill(orderId)
+    } else {
+      const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
+      const orderId = generateOrderId('buy')
+      addOrder({
+        id: orderId,
+        orderNum: buyCount,
+        kind: 'buy',
+        product_title: title,
+        product_id: product.id,
+        amount: total,
+        status: 'paid',
+        quantity: qty,
+        created: new Date().toISOString(),
+        paid_at: new Date().toISOString(),
+      })
+      updateBalance(-total)
+      if (product.delivery === 'auto') tryAutoFulfill(orderId)
+      tgNotify(
+        `🛍 Новый заказ (баланс)\n👤 ${user.username ? '@' + user.username : user.full_name ?? '—'} (ID: ${user.uid})\n📦 ${title} × ${qty}\n💵 $${total.toFixed(2)}`,
+      )
     }
+
+    addRealSale({
+      id: `sale-${Date.now()}`,
+      uid: user.uid,
+      username: user.username,
+      full_name: user.full_name,
+      photo_url: user.photo_url,
+      productTitle: title,
+      productIndex: products.findIndex((p) => p.id === product.id) <= 0 ? 0 : 1,
+      amount: total,
+      ts: Date.now(),
+    })
     toast.show(lang === 'ru' ? 'Заказ оплачен.' : 'Order paid.', 'success')
-    tgNotify(
-      `🛍 Новый заказ (баланс)\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n📦 ${title} × ${qty}\n💵 $${total.toFixed(2)}`,
-    )
     setPayStep('success')
     setTimeout(() => { purchaseLock.current = false }, 2000)
   }

@@ -79,17 +79,24 @@ export default function PaymentWaiting({
     const tick = async () => {
       const s = await fetchOrderStatus(orderId)
       setStatus(s)
-      if (s === 'paid' || s === 'completed') {
+      if (s === 'expired' || s === 'failed') {
+        onCancel()
+      } else if (kind === 'deposit') {
+        if (s === 'paid') setStep(1)
+        if (s === 'completed') {
+          setStep(2)
+          haptic('success')
+          setTimeout(onSuccess, 1200)
+        }
+      } else if (s === 'paid' || s === 'completed') {
         setStep(2)
         haptic('success')
         setTimeout(onSuccess, 1200)
-      } else if (s === 'expired' || s === 'failed') {
-        onCancel()
       }
     }
     pollRef.current = window.setInterval(tick, CONFIG.pollIntervalMs)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [orderId, onSuccess, haptic])
+  }, [orderId, kind, onCancel, onSuccess, haptic])
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(liveAddress) } catch { /* ignore */ }

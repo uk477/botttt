@@ -66,10 +66,19 @@ function AppInner() {
   useEffect(() => {
     init()
     initUser()
+    const unsub = useStore.persist.onFinishHydration(() => {
+      void useStore.getState().bootstrapSession()
+    })
+    if (useStore.persist.hasHydrated()) {
+      void useStore.getState().bootstrapSession()
+    }
 
     const block = (e: Event) => e.preventDefault()
     document.addEventListener('contextmenu', block, { passive: false })
-    return () => document.removeEventListener('contextmenu', block)
+    return () => {
+      document.removeEventListener('contextmenu', block)
+      unsub()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -77,6 +86,29 @@ function AppInner() {
     const sync = useStore.getState().syncStoreConfig
     const id = window.setInterval(() => void sync(), 45_000)
     return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const tick = () => {
+      const hasOpen = useStore.getState().orders.some(
+        (o) => o.status === 'pending' || o.status === 'paid',
+      )
+      if (hasOpen) void useStore.getState().refreshUser()
+    }
+    const id = window.setInterval(tick, 12_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      void useStore.getState().syncStoreConfig()
+      void useStore.getState().refreshUser()
+      const s = useStore.getState()
+      if (s._adminVerified) void s.syncAdminData()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
   // Wire Telegram native back button to history navigation

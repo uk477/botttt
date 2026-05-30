@@ -1,14 +1,12 @@
-import { CONFIG } from '../config'
 import { getTelegramInitData } from './security'
+import { apiPath } from './apiBase'
 import type { NotifyLang, UserNotifyKind, UserNotifyPayload } from '../../../shared/telegramTemplates'
 
 /**
  * Sends a Telegram notification via the backend /api/notify endpoint.
  */
 
-const NOTIFY_URL = CONFIG.apiUrl
-  ? `${CONFIG.apiUrl}/api/notify`
-  : '/api/notify'
+const NOTIFY_URL = apiPath('/api/notify')
 
 type NotifyBody = {
   text?: string

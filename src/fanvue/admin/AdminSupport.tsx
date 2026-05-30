@@ -76,9 +76,9 @@ export default function AdminSupport() {
   const markRead = useStore((s) => s.markUserMessagesReadByAdmin)
   const setAdminPresence = useStore((s) => s.setAdminPresence)
   const closeTicket = useStore((s) => s.closeSupportTicket)
-  const updateBalance = useStore((s) => s.updateBalance)
   const orders = useStore((s) => s.orders)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const { haptic } = useTelegram()
 
   const [openUid, setOpenUid] = useState<number | null>(null)
@@ -251,8 +251,9 @@ export default function AdminSupport() {
       if (cmd === 'close' && activeTicket) { handleCloseTicket(); setReply(''); return }
       if (cmd === 'balance') {
         const amt = parseFloat(rest[0] ?? '')
-        if (amt > 0) {
-          updateBalance(amt); haptic('success')
+        if (amt > 0 && openUid) {
+          if (api.isEnabled()) void api.adminIssueBalance(openUid, amt)
+          haptic('success')
           addMsg({
             id: Date.now(), sender: 'admin', kind: 'text',
             text: lang === 'ru' ? `💸 Начислено $${amt.toFixed(2)} на баланс.` : `💸 $${amt.toFixed(2)} credited.`,
@@ -290,17 +291,27 @@ export default function AdminSupport() {
     if (!activeTicket) return
     haptic('success'); closeTicket(activeTicket.id, 'admin'); setConfirmClose(false)
   }
-  const handleIssueBalance = () => {
+  const handleIssueBalance = async () => {
     const amt = parseFloat(balanceInput)
-    if (!amt || amt <= 0) return
-    updateBalance(amt); haptic('success')
+    if (!amt || amt <= 0 || !openUid) return
+    if (api.isEnabled()) {
+      const res = await api.adminIssueBalance(openUid, amt)
+      if (!res) return
+    }
+    haptic('success')
     setBalanceSent(true); setBalanceInput('')
     setTimeout(() => setBalanceSent(false), 2200)
   }
-  const handleMarkDelivered = () => {
+  const handleMarkDelivered = async () => {
     if (!chatOrder) return
     haptic('success')
-    setOrderStatus(chatOrder.id, 'completed')
+    if (api.isEnabled()) {
+      const res = await api.adminPatchOrder(chatOrder.id, { status: 'completed' })
+      if (!res) return
+      await syncAdminData()
+    } else {
+      setOrderStatus(chatOrder.id, 'completed')
+    }
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     if (openUid) {
       notifyUserTemplated(openUid, 'order_delivered', {

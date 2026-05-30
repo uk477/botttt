@@ -25,6 +25,7 @@ import {
   type AdminLogRow,
 } from "../db.js";
 import { ENV } from "../env.js";
+import { finalizeCompletedOrder } from "../orderFinalize.js";
 
 const router = Router();
 
@@ -118,9 +119,13 @@ router.patch("/api/admin/order/:id", (req: Request, res: Response) => {
   const order = orders.get(id);
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
   const { status } = req.body;
-  if (status === "paid") orders.markPaid(order.id, req.body.tx_hash || "manual");
-  else if (status === "completed") orders.markCompleted(order.id);
-  else if (status === "expired") orders.expire(order.id);
+  if (status === "paid") {
+    orders.markPaid(order.id, req.body.tx_hash || "manual");
+  } else if (status === "completed") {
+    finalizeCompletedOrder(order, req.body.tx_hash || "manual");
+  } else if (status === "expired") {
+    orders.expire(order.id);
+  }
   res.json({ ok: true });
 });
 
@@ -484,6 +489,11 @@ router.post("/api/support/message", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid text" }); return;
   }
   support.addMessage({ uid: user.id, sender: "user", text });
+  const userName = user.username ? `@${user.username}` : user.first_name;
+  const preview = text.length > 400 ? text.slice(0, 400) + "…" : text;
+  notifyAdmin(
+    `<b>Сообщение в поддержку</b>\n\n${userName} · UID ${user.id}\n\n${preview}`,
+  );
   res.json({ ok: true });
 });
 
@@ -566,6 +576,33 @@ router.patch("/api/admin/ref-withdrawal/:id", (req: Request, res: Response) => {
 router.get("/api/admin/logs", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   res.json(adminLogs.getAll().map(mapLog));
+});
+
+router.post("/api/admin/log", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const b = req.body as {
+    uid?: number
+    username?: string
+    kind?: string
+    amount?: number
+    network?: string
+    status?: string
+    tx_hash?: string
+    product?: string
+    type?: string
+  };
+  adminLogs.add({
+    type: b.type ?? "payment",
+    uid: b.uid ?? null,
+    username: b.username ?? null,
+    kind: b.kind ?? null,
+    amount: typeof b.amount === "number" ? b.amount : null,
+    network: b.network ?? null,
+    status: b.status ?? "success",
+    tx_hash: b.tx_hash ?? null,
+    product: b.product ?? null,
+  });
+  res.json({ ok: true });
 });
 
 export default router;

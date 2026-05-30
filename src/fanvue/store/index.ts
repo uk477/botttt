@@ -73,9 +73,36 @@ const MOCK_ORDERS: Order[] = []
 // Empty by default — bot triage greeting will be shown
 const MOCK_SUPPORT: SupportMessage[] = []
 
+function syncNotificationsWithOrders(
+  notifications: PaymentNotification[],
+  orders: Order[],
+): PaymentNotification[] {
+  const terminal = new Set<Order['status']>(['completed', 'failed', 'expired'])
+  let next = notifications.filter((n) => {
+    const o = orders.find((x) => x.id === n.orderId)
+    return !o || !terminal.has(o.status)
+  })
+  for (const o of orders) {
+    if (o.status !== 'pending') continue
+    if (next.some((n) => n.orderId === o.id)) continue
+    const network = (o.provider || 'trc20') as CryptoNetwork
+    next = [{
+      orderId: o.id,
+      kind: o.kind,
+      amountUsd: o.amount,
+      uniqueAmount: o.amount,
+      network,
+      read: false,
+      createdAt: o.created,
+    }, ...next]
+  }
+  return next.slice(0, 30)
+}
+
 function mapServerOrder(o: Record<string, unknown>): Order {
   return {
     id: String(o.id),
+    uid: o.uid != null ? Number(o.uid) : undefined,
     kind: (o.kind as Order['kind']) || 'deposit',
     amount: Number(o.amount_usd ?? o.amount ?? 0),
     status: (o.status as Order['status']) || 'pending',
@@ -137,6 +164,7 @@ interface AppStore {
   // User actions
   setLang: (lang: Lang) => void
   initUser: () => void
+  bootstrapSession: () => Promise<void>
   setCart: (cart: CartItem | null) => void
   addOrder: (order: Order) => void
   addSupportMessage: (msg: SupportMessage) => void
@@ -227,6 +255,7 @@ export const useStore = create<AppStore>()(
       realSales: [],
       _adminVerified: false,
       _adminCheckDone: false,
+      _sessionBootstrapped: false,
 
       cryptoAddresses: { ...CONFIG.addresses },
       maintenance: false,
@@ -259,7 +288,6 @@ export const useStore = create<AppStore>()(
       },
 
       initUser: () => {
-        // one-time dedupe of any legacy duplicate stickHero scores
         const cur = get().stickHeroScores
         if (Array.isArray(cur) && cur.length > 0) {
           const best = new Map<string, { name: string; score: number; ts: number }>()
@@ -274,113 +302,144 @@ export const useStore = create<AppStore>()(
           const deduped = [...best.values()].sort((a, b) => b.score - a.score).slice(0, 100)
           if (deduped.length !== cur.length) set({ stickHeroScores: deduped })
         }
+      },
+
+      bootstrapSession: async () => {
+        if (get()._sessionBootstrapped) return
+        set({ isLoading: true })
+
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+        type TGUser = {
+          id?: number
+          username?: string
+          first_name?: string
+          last_name?: string
+          language_code?: string
+          photo_url?: string
+        }
+        const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser; start_param?: string } } } }).Telegram?.WebApp
+        const tgUser = tg?.initDataUnsafe?.user
+        const startParam = tg?.initDataUnsafe?.start_param ?? ''
+        const state = get()
+
         try {
-          type TGUser = { id?: number; username?: string; first_name?: string; last_name?: string; language_code?: string; photo_url?: string }
-          const tg = (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { user?: TGUser; start_param?: string } } } }).Telegram?.WebApp
-          const tgUser = tg?.initDataUnsafe?.user
-          const startParam = tg?.initDataUnsafe?.start_param ?? ''
-          const state = get()
-          const langFromStart =
-            startParam === 'en' || startParam === 'lang_en' ? 'en' as const
-            : startParam === 'ru' || startParam === 'lang_ru' ? 'ru' as const
-            : null
-          if (tgUser) {
-            const detectedLang: Lang = tgUser.language_code?.startsWith('ru') ? 'ru' : 'en'
-            const initialLang: Lang = state.langUserSet
-              ? state.lang
-              : (langFromStart ?? detectedLang)
-            const uid = tgUser.id ?? state.user?.uid ?? MOCK_USER.uid
-            const samePersistedUser = state.user?.uid === uid ? state.user : null
-            const localUser: User = {
-              ...MOCK_USER,
-              ...(samePersistedUser ?? {}),
+          if (!tgUser?.id) {
+            set({ isLoading: false, storeConfigLoaded: true, _adminCheckDone: true })
+            return
+          }
+
+          const uid = tgUser.id
+          const detectedLang: Lang = tgUser.language_code?.startsWith('ru') ? 'ru' : 'en'
+          const initialLang: Lang = state.langUserSet
+            ? state.lang
+            : (startParam === 'en' || startParam === 'lang_en' ? 'en'
+              : startParam === 'ru' || startParam === 'lang_ru' ? 'ru'
+              : detectedLang)
+
+          const persisted = state.user?.uid === uid ? state.user : null
+          set({
+            lang: initialLang,
+            langUserSet: state.langUserSet,
+            user: {
+              ...(persisted ?? { ...MOCK_USER, uid }),
               uid,
-              username: tgUser.username ?? samePersistedUser?.username ?? MOCK_USER.username,
-              full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || samePersistedUser?.full_name || MOCK_USER.full_name,
-              photo_url: tgUser.photo_url ?? samePersistedUser?.photo_url,
+              username: tgUser.username ?? persisted?.username ?? '',
+              full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || persisted?.full_name || '',
+              photo_url: tgUser.photo_url ?? persisted?.photo_url,
+              balance: persisted?.balance ?? 0,
+              spent: persisted?.spent ?? 0,
+              purchases: persisted?.purchases ?? 0,
+              ref_earned: persisted?.ref_earned ?? 0,
+              ref_count: persisted?.ref_count ?? 0,
+              ref_balance: persisted?.ref_balance ?? 0,
+            },
+          })
+
+          verifyAdminHash(uid, CONFIG.adminHashes).then((ok) => {
+            set({ _adminVerified: ok, _adminCheckDone: true })
+            if (ok && api.isEnabled()) void get().syncAdminData()
+          }).catch(() => set({ _adminCheckDone: true }))
+
+          if (!api.isEnabled()) {
+            set({ isLoading: false, storeConfigLoaded: true })
+            return
+          }
+
+          await get().syncStoreConfig()
+
+          let serverUser: Record<string, unknown> | null = null
+          for (let attempt = 0; attempt < 6; attempt++) {
+            if (attempt > 0) await sleep(250)
+            const res = await api.auth({})
+            if (res && typeof res === 'object') {
+              serverUser = res as Record<string, unknown>
+              break
             }
+          }
+
+          if (serverUser) {
+            const u = serverUser
+            if (!get().langUserSet && (u.preferred_lang === 'ru' || u.preferred_lang === 'en')) {
+              set({ lang: u.preferred_lang as Lang })
+            }
+            if (u.isAdmin === true) {
+              set({ _adminVerified: true, _adminCheckDone: true })
+              void get().syncAdminData()
+            }
+            if (typeof u.maintenance === 'boolean') {
+              set({ maintenance: u.maintenance as boolean })
+            }
+            set((s) => ({
+              user: s.user ? {
+                ...s.user,
+                balance: Number(u.balance ?? s.user.balance),
+                spent: Number(u.spent ?? s.user.spent),
+                purchases: Number(u.purchases ?? s.user.purchases),
+                ref_earned: Number(u.ref_earned ?? s.user.ref_earned),
+                ref_count: Number(u.ref_count ?? s.user.ref_count),
+                ref_balance: Number(u.ref_balance ?? s.user.ref_balance),
+              } : s.user,
+            }))
+          }
+
+          const ordersRes = await api.getMyOrders()
+          if (ordersRes && typeof ordersRes === 'object' && Array.isArray((ordersRes as { orders?: unknown }).orders)) {
+            const mapped = ((ordersRes as { orders: Record<string, unknown>[] }).orders).map(mapServerOrder)
             set({
-              user: localUser,
-              lang: initialLang,
-              langUserSet: state.langUserSet,
-              isLoading: false,
-            })
-
-            verifyAdminHash(localUser.uid, CONFIG.adminHashes).then((ok) => {
-              set({ _adminVerified: ok, _adminCheckDone: true })
-              if (ok && api.isEnabled()) get().syncAdminData()
-            }).catch(() => {
-              set({ _adminCheckDone: true })
-            })
-
-            if (api.isEnabled()) {
-              void get().syncStoreConfig()
-              api.auth({}).then((serverUser) => {
-                if (serverUser && typeof serverUser === 'object') {
-                  const u = serverUser as Record<string, unknown>
-                  const pref = u.preferred_lang
-                  if (!get().langUserSet && (pref === 'ru' || pref === 'en')) {
-                    set({ lang: pref as Lang })
-                  }
-                  // If server reports isAdmin, trust it over local hash
-                  const serverIsAdmin = u.isAdmin === true
-                  if (serverIsAdmin) {
-                    set({ _adminVerified: true, _adminCheckDone: true })
-                    get().syncAdminData()
-                  }
-                  if (typeof u.maintenance === 'boolean') {
-                    set({ maintenance: u.maintenance as boolean })
-                  }
-                  set((s) => ({
-                    user: s.user ? {
-                      ...s.user,
-                      balance:     Number(u.balance     ?? s.user.balance),
-                      spent:       Number(u.spent       ?? s.user.spent),
-                      purchases:   Number(u.purchases   ?? s.user.purchases),
-                      ref_earned:  Number(u.ref_earned  ?? s.user.ref_earned),
-                      ref_count:   Number(u.ref_count   ?? s.user.ref_count),
-                      ref_balance: Number(u.ref_balance ?? s.user.ref_balance),
-                    } : s.user,
-                  }))
-                  api.getMyOrders().then((res) => {
-                    if (res && typeof res === 'object' && 'orders' in res) {
-                      set({ orders: (res as { orders: Order[] }).orders })
-                    }
-                  })
-                  api.getMessages().then((res) => {
-                    if (res && typeof res === 'object' && 'messages' in res) {
-                      set({ supportMessages: (res as { messages: SupportMessage[] }).messages })
-                    }
-                  })
-                  api.getProducts().then((res) => {
-                    if (res && typeof res === 'object') {
-                      const update: Partial<AppStore> = {}
-                      if ('products' in res && Array.isArray(res.products) && res.products.length > 0) {
-                        update.products = res.products as Product[]
-                      }
-                      if ('categories' in res && Array.isArray(res.categories) && res.categories.length > 0) {
-                        update.categories = res.categories as Category[]
-                      }
-                      if ('pinned' in res && Array.isArray(res.pinned)) {
-                        update.pinnedProductIds = res.pinned as number[]
-                      }
-                      if (Object.keys(update).length > 0) set(update)
-                    }
-                  })
-                }
-              })
-            }
-          } else {
-            if (api.isEnabled()) void get().syncStoreConfig()
-            const persistedUser = get().user
-            set({ user: persistedUser ?? MOCK_USER, isLoading: false })
-            // Demo mode: verify mock user against hashes too
-            verifyAdminHash((persistedUser ?? MOCK_USER).uid, CONFIG.adminHashes).then((ok) => {
-              set({ _adminVerified: ok, _adminCheckDone: true })
+              orders: mapped,
+              notifications: syncNotificationsWithOrders(get().notifications, mapped),
             })
           }
+
+          const msgRes = await api.getMessages()
+          if (msgRes && typeof msgRes === 'object' && Array.isArray((msgRes as { messages?: unknown }).messages)) {
+            set({ supportMessages: (msgRes as { messages: SupportMessage[] }).messages })
+          }
+
+          const catalog = await api.getProducts()
+          if (catalog && typeof catalog === 'object') {
+            const update: Partial<AppStore> = {}
+            if (Array.isArray((catalog as { products?: Product[] }).products) && (catalog as { products: Product[] }).products.length > 0) {
+              update.products = (catalog as { products: Product[] }).products
+            }
+            if (Array.isArray((catalog as { categories?: Category[] }).categories) && (catalog as { categories: Category[] }).categories.length > 0) {
+              update.categories = (catalog as { categories: Category[] }).categories
+            }
+            if (Array.isArray((catalog as { pinned?: number[] }).pinned)) {
+              update.pinnedProductIds = (catalog as { pinned: number[] }).pinned
+            }
+            if (Object.keys(update).length > 0) set(update)
+          }
         } catch {
-          set({ user: get().user ?? MOCK_USER, isLoading: false, _adminCheckDone: true })
+          /* keep persisted state */
+        } finally {
+          set({
+            isLoading: false,
+            storeConfigLoaded: true,
+            _adminCheckDone: true,
+            _sessionBootstrapped: true,
+          })
         }
       },
 
@@ -607,6 +666,14 @@ export const useStore = create<AppStore>()(
               } : s.user,
             }))
           }
+          const ordersRes = await api.getMyOrders()
+          if (ordersRes && typeof ordersRes === 'object' && Array.isArray((ordersRes as { orders?: unknown }).orders)) {
+            const mapped = ((ordersRes as { orders: Record<string, unknown>[] }).orders).map(mapServerOrder)
+            set({
+              orders: mapped,
+              notifications: syncNotificationsWithOrders(get().notifications, mapped),
+            })
+          }
         } catch { /* ignore */ }
       },
 
@@ -687,14 +754,24 @@ export const useStore = create<AppStore>()(
           return {}
         }),
 
-      cancelPendingDeposits: (exceptNetwork?: string) =>
+      cancelPendingDeposits: (exceptNetwork?: string) => {
+        const pending = get().orders.filter(
+          (o) => o.kind === 'deposit' && o.status === 'pending' && o.provider !== exceptNetwork,
+        )
+        if (api.isEnabled()) {
+          for (const o of pending) void api.cancelOrder(o.id)
+        }
         set((s) => ({
           orders: s.orders.map((o) =>
             o.kind === 'deposit' && o.status === 'pending' && o.provider !== exceptNetwork
               ? { ...o, status: 'failed' as const }
               : o
           ),
-        })),
+          notifications: s.notifications.filter(
+            (n) => !pending.some((o) => o.id === n.orderId),
+          ),
+        }))
+      },
 
       syncStoreConfig: async () => {
         if (!api.isEnabled()) {
@@ -969,8 +1046,13 @@ export const useStore = create<AppStore>()(
       deleteCategory: (id) =>
         set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
 
-      addLog: (log) =>
-        set((s) => ({ logs: [{ id: Date.now(), ...log }, ...s.logs].slice(0, 500) })),
+      addLog: (log) => {
+        const entry: PaymentLog = { id: Date.now(), ...log }
+        set((s) => ({ logs: [entry, ...s.logs].slice(0, 500) }))
+        if (api.isEnabled() && get()._adminVerified) {
+          void api.adminAddLog(entry)
+        }
+      },
 
       addBroadcast: (text, sent_to, keyboard) =>
         set((s) => ({
@@ -1125,6 +1207,11 @@ export const useStore = create<AppStore>()(
         stickHeroScores: s.stickHeroScores,
         stickHeroName: s.stickHeroName,
       }),
+      onRehydrateStorage: () => () => {
+        queueMicrotask(() => {
+          void useStore.getState().bootstrapSession()
+        })
+      },
     }
   )
 )

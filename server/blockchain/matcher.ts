@@ -1,5 +1,5 @@
-import { orders, transactions, users, adminLogs, type OrderRow } from "../db.js";
-import { notifyAdmin, notifyUserTemplated } from "../telegram.js";
+import { orders, transactions, type OrderRow } from "../db.js";
+import { finalizeCompletedOrder } from "../orderFinalize.js";
 
 export interface IncomingTx {
   tx_hash: string;
@@ -46,47 +46,8 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
       setTimeout(() => {
         const fresh = orders.get(order.id);
         if (fresh && fresh.status === "paid") {
-          orders.markCompleted(order.id);
           console.log(`[matcher] COMPLETED order ${order.id}`);
-
-          // Credit user balance for deposits (idempotent: markCompleted runs once
-          // because it only updates rows where status='paid').
-          if (order.kind === "deposit") {
-            users.credit(order.uid, order.amount_usd);
-            console.log(`[matcher] CREDITED uid=${order.uid} +$${order.amount_usd}`);
-          }
-
-          const u = users.get(order.uid);
-          adminLogs.add({
-            type: "payment",
-            uid: order.uid,
-            username: u?.username ?? null,
-            kind: order.kind,
-            amount: order.amount_usd,
-            network: order.network,
-            status: "success",
-            tx_hash: tx.tx_hash,
-          });
-
-          const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
-
-          const isDeposit = order.kind === "deposit";
-
-          notifyAdmin(
-            isDeposit
-              ? `<b>Депозит подтверждён</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}\n<code>${tx.tx_hash.slice(0, 16)}…</code>`
-              : `<b>Оплата подтверждена</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}\n<code>${tx.tx_hash.slice(0, 16)}…</code>`,
-          );
-
-          notifyUserTemplated(
-            order.uid,
-            isDeposit ? "deposit_credited" : "payment_received",
-            {
-              amountUsd: order.amount_usd,
-              orderId: isDeposit ? undefined : order.id,
-              time,
-            },
-          );
+          finalizeCompletedOrder(order, tx.tx_hash);
         }
       }, 5000);
 

@@ -7,6 +7,7 @@ import Confetti from '../components/Confetti'
 import CryptoLogo from '../components/CryptoLogo'
 import { useToast } from '../components/Toast'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
 import { createOrder, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
@@ -96,6 +97,7 @@ export default function Deposit() {
 
   const cancelDeposit = () => {
     if (!pendingOrder) return
+    if (api.isEnabled()) void api.cancelOrder(pendingOrder.id)
     setOrderStatus(pendingOrder.id, 'failed')
     tgNotify(`❌ Депозит отменён\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n💵 $${pendingOrder.uniqueAmount.toFixed(2)} · ${network?.toUpperCase()}\n🆔 ${pendingOrder.id}`)
   }
@@ -136,8 +138,10 @@ export default function Deposit() {
     if (!rateLimit('deposit_confirm', 3, 60_000)) return
     audit('deposit_confirm', user?.uid, { orderId: pendingOrder.id, amount: pendingOrder.uniqueAmount })
     creditDeposit(pendingOrder.id, pendingOrder.uniqueAmount)
-    toast.show(lang === 'ru' ? `+$${pendingOrder.uniqueAmount.toFixed(2)} зачислено` : `+$${pendingOrder.uniqueAmount.toFixed(2)} credited`, 'success')
-    tgNotify(`💳 Новый депозит\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n💵 $${pendingOrder.uniqueAmount.toFixed(2)} · ${network?.toUpperCase()}\n🆔 ${pendingOrder.id}`)
+    const creditedMsg = api.isEnabled()
+      ? (lang === 'ru' ? 'Оплата подтверждена, баланс обновлён' : 'Payment confirmed, balance updated')
+      : (lang === 'ru' ? `+$${pendingOrder.uniqueAmount.toFixed(2)} зачислено` : `+$${pendingOrder.uniqueAmount.toFixed(2)} credited`)
+    toast.show(creditedMsg, 'success')
     setStep('success')
   }
 

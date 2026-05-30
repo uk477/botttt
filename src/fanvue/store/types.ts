@@ -89,6 +89,8 @@ export interface Product {
 
 export interface Order {
   id: string
+  /** Telegram user id (from server admin/all orders list). */
+  uid?: number
   kind: OrderKind
   product_title?: string
   /** ID товара — нужен для автовыдачи (взятия следующего пула). */

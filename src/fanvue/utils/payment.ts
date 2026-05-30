@@ -1,5 +1,5 @@
-import { CONFIG } from '../config'
 import { getTelegramInitData } from './security'
+import { apiPath } from './apiBase'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
 
 /**
@@ -134,7 +134,7 @@ function authHeaders(): HeadersInit {
 }
 
 function apiUrl(path: string): string {
-  return `${CONFIG.apiUrl.replace(/\/$/, '')}${path}`
+  return apiPath(path)
 }
 
 async function fetchWithRetry(

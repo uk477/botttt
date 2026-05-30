@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
 import { readMaintenanceFlag } from "../storeConfig.js";
-import { orders } from "../db.js";
+import { orders, users, products, adminLogs } from "../db.js";
 import { ENV } from "../env.js";
 import { getPublicStoreConfig } from "../storeConfig.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
@@ -169,6 +169,177 @@ router.post("/api/order", orderLimiter, async (req: Request, res: Response) => {
     amount_crypto: amountCrypto,
     expires_at: expiresAt,
   });
+});
+
+// ── POST /api/purchase/balance — pay for product from account balance ─
+
+router.post("/api/purchase/balance", orderLimiter, (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  if (readMaintenanceFlag() && !isAdmin(user.id)) {
+    res.status(503).json({ error: "maintenance" });
+    return;
+  }
+
+  const { product_id, quantity = 1, amount_usd } = req.body as {
+    product_id?: number;
+    quantity?: number;
+    amount_usd?: number;
+  };
+
+  const qty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
+  const productId = Number(product_id);
+  if (!productId || productId <= 0) {
+    res.status(400).json({ error: "Invalid product" });
+    return;
+  }
+
+  const product = products.get(productId);
+  if (!product || !product.active) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+
+  const total = Number(amount_usd);
+  const expected = Math.round(product.price * qty * 100) / 100;
+  if (!total || Math.abs(total - expected) > 0.02) {
+    res.status(400).json({ error: "Invalid amount" });
+    return;
+  }
+
+  if (product.delivery === "auto" && product.stock < qty) {
+    res.status(400).json({ error: "Out of stock" });
+    return;
+  }
+
+  const debited = users.debitPurchase(user.id, total, qty);
+  if (!debited) {
+    res.status(400).json({ error: "Insufficient balance" });
+    return;
+  }
+
+  const id = generateOrderId("buy");
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  orders.create({
+    id,
+    uid: user.id,
+    kind: "buy",
+    amount_usd: total,
+    amount_crypto: 0,
+    network: "balance",
+    wallet: "",
+    expires_at: expiresAt,
+  });
+  orders.markPaid(id, "balance");
+  orders.markCompleted(id);
+
+  if (product.delivery === "auto" && product.stock >= qty) {
+    let autoItems: string[] = [];
+    try {
+      autoItems = JSON.parse(product.auto_items || "[]") as string[];
+    } catch {
+      autoItems = [];
+    }
+    products.upsert({
+      id: product.id,
+      cat_id: product.cat_id,
+      title: product.title,
+      title_en: product.title_en,
+      description: product.description,
+      desc_en: product.desc_en,
+      price: product.price,
+      delivery: product.delivery,
+      stock: Math.max(0, product.stock - qty),
+      active: !!product.active,
+      auto_items: autoItems,
+      pinned: !!product.pinned,
+      image_url: product.image_url,
+    });
+  }
+
+  const title = product.title;
+  const time = new Date().toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const userName = user.username ? `@${user.username}` : user.first_name;
+
+  adminLogs.add({
+    type: "payment",
+    uid: user.id,
+    username: user.username ?? null,
+    kind: "buy",
+    amount: total,
+    network: "balance",
+    status: "success",
+    product: title,
+  });
+
+  notifyAdmin(
+    `<b>Заказ (баланс)</b>\n\n${userName} · ${title} × ${qty}\n$${total.toFixed(2)} · ${time}\n<code>${id}</code>`,
+  );
+
+  const lang = user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en";
+  notifyUserTemplated(
+    user.id,
+    "payment_received",
+    { amountUsd: total, orderId: id, productTitle: title },
+    lang,
+  );
+
+  res.json({
+    ok: true,
+    order: {
+      id,
+      kind: "buy",
+      product_id: productId,
+      product_title: title,
+      amount_usd: total,
+      quantity: qty,
+      status: "completed",
+      network: "balance",
+      created_at: new Date().toISOString(),
+      paid_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    },
+    balance: debited.balance,
+    spent: debited.spent,
+    purchases: debited.purchases,
+  });
+});
+
+// ── POST /api/order/:id/cancel — cancel own pending order ───────────
+
+router.post("/api/order/:id/cancel", orderLimiter, (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const order = orders.get(req.params.id as string);
+  if (!order) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+  if (order.uid !== user.id && !isAdmin(user.id)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  if (order.status !== "pending") {
+    res.status(400).json({ error: "Order is not pending" });
+    return;
+  }
+
+  orders.expire(order.id);
+  res.json({ ok: true, status: "expired" });
 });
 
 // ── GET /api/order/:id — check order status (auth required) ─────────
