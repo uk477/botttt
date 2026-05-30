@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyInitData, isAdmin, notifyUserTemplated, notifyUserBroadcast } from "../telegram.js";
+import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated, notifyUserBroadcast } from "../telegram.js";
 import {
   buildBroadcastReplyMarkup,
   buildSimpleButtonMarkup,
