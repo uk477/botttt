@@ -282,8 +282,9 @@ export async function notifyUserTemplated(
   params: UserNotifyPayload,
   lang: NotifyLang = "ru",
 ): Promise<boolean> {
-  const { text, buttonText } = buildUserNotification(kind, params, lang);
+  // Покупателю — только текст, без inline-кнопок (Оплатить / Открыть приложение).
+  if (kind === "order_created" || kind === "deposit_created") return true;
+  const { text } = buildUserNotification(kind, params, lang);
   if (!text?.trim()) return true;
-  if (!buttonText?.trim()) return sendMessage(chatId, text);
-  return notifyUserWithButton(chatId, text, buttonText);
+  return sendMessage(chatId, text);
 }

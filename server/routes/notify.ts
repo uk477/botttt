@@ -56,7 +56,8 @@ router.post("/api/notify", notifyLimiter, async (req: Request, res: Response) =>
         res.status(400).json({ error: "Invalid text" });
         return;
       }
-      ok = buttonText
+      // Шаблоны покупателю — без кнопок; кнопка только если админ явно передал buttonText.
+      ok = buttonText?.trim()
         ? await notifyUserWithButton(chatId, text, buttonText)
         : await notifyUser(chatId, text);
     }
