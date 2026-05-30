@@ -80,6 +80,7 @@ async function postBroadcast(
     keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
   },
 ): Promise<BroadcastApiResult> {
+  const base = resolveApiBase()
   if (!base) return { ok: false, error: 'API disabled' }
   try {
     const r = await fetch(`${base}/api/admin/broadcast`, {
@@ -126,6 +127,8 @@ export const api = {
   getMessages:    ()                 => get<{ messages: unknown[]; tickets?: unknown[] }>('/api/support/messages'),
   openSupportTicket: (b: { id: string; category: string; summary?: string }) =>
     post<{ ok: boolean; ticket: Record<string, unknown> }>('/api/support/ticket', b),
+  closeSupportTicket: (id: string, reason?: string) =>
+    post<{ ok: boolean }>(`/api/support/ticket/${encodeURIComponent(id)}/close`, { reason }),
   sendMessage:    (text: string)     => post('/api/support/message', { text }),
 
   refWithdraw:    (b: object)        => post('/api/ref/withdraw', b),
@@ -139,6 +142,8 @@ export const api = {
   adminSupport:          ()                        => get('/api/admin/support'),
   adminReply:            (uid: number, text: string, lang?: 'ru' | 'en') =>
     post(`/api/admin/support/${uid}`, { text, lang }),
+  adminCloseTicket:      (id: string, reason?: string) =>
+    post<{ ok: boolean }>(`/api/admin/support/ticket/${encodeURIComponent(id)}/close`, { reason }),
   adminGetSettings:      ()                        => get('/api/admin/settings'),
   adminSetSettings:      (b: object)               => post<{ ok: boolean }>('/api/admin/settings', b),
   adminGetProducts:      ()                        => get<{ products: unknown[]; categories: unknown[]; pinned: number[] }>('/api/admin/products'),

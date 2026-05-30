@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import CryptoLogo from '../components/CryptoLogo'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { api } from '../store/api'
 import { tgNotify, notifyUserTemplated, notifyAdmin } from '../utils/tgNotify'
+import { adminRefApproved, adminRefRejected } from '../../../shared/telegramTemplates'
 import type { RefWithdrawal } from '../store/types'
 import { AdminSegmented, AdminStat, AdminEmpty, AdminCard } from './ui'
 
@@ -37,7 +39,7 @@ function TxidInput({ id }: { id: string }) {
   const [showReason, setShowReason] = useState(false)
   const completeRefWithdrawal = useStore((s) => s.completeRefWithdrawal)
   const updateRefWithdrawal = useStore((s) => s.updateRefWithdrawal)
-  const creditRefBalance = useStore((s) => s.creditRefBalance)
+  const syncAdminData = useStore((s) => s.syncAdminData)
   const lang = useStore((s) => s.lang)
 
   return (
@@ -54,10 +56,16 @@ function TxidInput({ id }: { id: string }) {
           type="button"
           className="adm-btn adm-btn--primary adm-btn--sm"
           style={{ flex: 1 }}
-          onClick={() => {
+          onClick={async () => {
             const w = useStore.getState().refWithdrawals.find((x) => x.id === id)
             if (!w) return
-            completeRefWithdrawal(id, tx || '')
+            if (api.isEnabled()) {
+              const res = await api.adminSetRefStatus(id, { action: 'approve', txid: tx || '' })
+              if (!res) return
+              await syncAdminData()
+            } else {
+              completeRefWithdrawal(id, tx || '')
+            }
             const net = CRYPTO_OPTIONS.find((o) => o.id === w.network)
             if (w.uid) {
               notifyUserTemplated(w.uid, 'ref_approved', {
@@ -67,7 +75,14 @@ function TxidInput({ id }: { id: string }) {
                 refId: w.id,
               }, lang)
             }
-            notifyAdmin(`✅ Вывод одобрен\n🆔 ${w.id}\n💵 $${w.amount.toFixed(2)} · ${net?.name ?? w.network}\n${tx ? `🔗 ${tx}` : ''}`)
+            notifyAdmin(
+              adminRefApproved({
+                refId: w.id,
+                amountUsd: w.amount,
+                network: net?.name ?? w.network,
+                txid: tx || undefined,
+              }),
+            )
           }}
         >
           {lang === 'ru' ? 'Подтвердить выплату' : 'Confirm payout'}
@@ -95,31 +110,36 @@ function TxidInput({ id }: { id: string }) {
             type="button"
             className="adm-btn adm-btn--sm adm-btn--danger adm-btn--block"
             disabled={!reason.trim()}
-            onClick={() => {
+            onClick={async () => {
               const trimmed = reason.trim()
               if (!trimmed) return
               const w = useStore.getState().refWithdrawals.find((x) => x.id === id)
-              if (w && w.status === 'pending') {
-                creditRefBalance(w.amount)
+              if (!w) return
+              if (api.isEnabled()) {
+                const res = await api.adminSetRefStatus(id, { action: 'reject', reason: trimmed })
+                if (!res) return
+                await syncAdminData()
+              } else {
+                updateRefWithdrawal(id, {
+                  status: 'rejected',
+                  completedAt: new Date().toISOString(),
+                  rejectReason: trimmed,
+                })
               }
-              updateRefWithdrawal(id, {
-                status: 'rejected',
-                completedAt: new Date().toISOString(),
-                rejectReason: trimmed,
-              })
-              if (w?.uid) {
+              if (w.uid) {
                 notifyUserTemplated(w.uid, 'ref_rejected', {
                   amountUsd: w.amount,
                   refId: w.id,
                   reason: trimmed,
                 }, lang)
               }
-              notifyAdmin([
-                '❌ Вывод отклонён',
-                w ? `🆔 ${w.id}` : '',
-                w ? `💵 $${w.amount.toFixed(2)} возвращены` : '',
-                `📝 ${trimmed}`,
-              ].filter(Boolean).join('\n'))
+              notifyAdmin(
+                adminRefRejected({
+                  refId: w.id,
+                  amountUsd: w.amount,
+                  reason: trimmed,
+                }),
+              )
               setShowReason(false)
               setReason('')
             }}

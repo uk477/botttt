@@ -11,6 +11,12 @@ import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } from '../utils/payment'
 import { tgNotify } from '../utils/tgNotify'
+import {
+  adminBalancePurchase,
+  adminCryptoOrder,
+  adminOrderCancelled,
+  formatUserRef,
+} from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
 import type { CryptoNetwork } from '../store/types'
@@ -50,7 +56,13 @@ export default function ProductDetail() {
   const [showPayment, setShowPayment] = useState(false)
   const [payStep, setPayStep] = useState<PayStep>('select')
   const [selectedNet, setSelectedNet] = useState<CryptoNetwork | null>(null)
-  const [pendingOrder, setPendingOrder] = useState<{ id: string; uniqueAmount: number } | null>(null)
+  const [pendingOrder, setPendingOrder] = useState<{
+    id: string
+    uniqueAmount: number
+    createdAt?: string
+    expiresAt?: string
+    address?: string
+  } | null>(null)
   const purchaseLock = useRef(false)
 
   useEffect(() => {
@@ -161,7 +173,16 @@ export default function ProductDetail() {
       updateBalance(-total)
       if (product.delivery === 'auto') tryAutoFulfill(orderId)
       tgNotify(
-        `🛍 Новый заказ (баланс)\n👤 ${user.username ? '@' + user.username : user.full_name ?? '—'} (ID: ${user.uid})\n📦 ${title} × ${qty}\n💵 $${total.toFixed(2)}`,
+        adminBalancePurchase({
+          userLabel: formatUserRef({
+            username: user.username,
+            full_name: user.full_name,
+            uid: user.uid,
+          }),
+          product: title,
+          qty,
+          amountUsd: total,
+        }),
       )
     }
 
@@ -207,7 +228,8 @@ export default function ProductDetail() {
     const remote = result.ok ? result : null
     const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
     const orderId = remote?.id ?? generateOrderId('buy')
-    const uniqueAmount = remote ? total : generateUniqueAmount(total)
+    const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(total)
+    const createdIso = new Date().toISOString()
     addOrder({
       id: orderId,
       orderNum: buyCount,
@@ -218,11 +240,28 @@ export default function ProductDetail() {
       status: 'pending',
       quantity: qty,
       provider: selectedNet,
-      created: new Date().toISOString(),
+      created: createdIso,
     })
-    setPendingOrder({ id: orderId, uniqueAmount })
+    setPendingOrder({
+      id: orderId,
+      uniqueAmount,
+      createdAt: createdIso,
+      expiresAt: remote?.expires_at,
+      address: remote?.address,
+    })
     tgNotify(
-      `🛍 Новый заказ (крипто)\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n📦 ${title} × ${qty}\n💵 $${uniqueAmount.toFixed(2)} · ${selectedNet.toUpperCase()}\n🆔 ${orderId}`,
+      adminCryptoOrder({
+        userLabel: formatUserRef({
+          username: user?.username,
+          full_name: user?.full_name,
+          uid: user?.uid,
+        }),
+        product: title,
+        qty,
+        amountUsd: uniqueAmount,
+        network: selectedNet,
+        orderId,
+      }),
     )
     setPayStep('crypto_pay')
     setTimeout(() => { purchaseLock.current = false }, 2000)
@@ -648,21 +687,36 @@ export default function ProductDetail() {
                     orderId={pendingOrder.id}
                     amountUsd={total}
                     uniqueAmount={pendingOrder.uniqueAmount}
+                    createdAt={pendingOrder.createdAt}
+                    expiresAt={pendingOrder.expiresAt}
                     network={cryptoOption.id}
                     cryptoName={cryptoOption.name}
                     cryptoSymbol={cryptoOption.symbol}
                     cryptoColor={cryptoOption.color}
-                    cryptoAddressFallback={cryptoOption.address}
+                    cryptoAddressFallback={pendingOrder.address || cryptoOption.address}
                     lang={lang}
                     onCancel={() => {
-                      if (pendingOrder) {
+                      void (async () => {
+                        if (!pendingOrder) return
+                        if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
                         setOrderStatus(pendingOrder.id, 'failed')
                         tgNotify(
-                          `❌ Заказ отменён\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n📦 ${title} × ${qty}\n💵 $${pendingOrder.uniqueAmount.toFixed(2)} · ${(selectedNet || '').toUpperCase()}\n🆔 ${pendingOrder.id}`,
+                          adminOrderCancelled({
+                            userLabel: formatUserRef({
+                              username: user?.username,
+                              full_name: user?.full_name,
+                              uid: user?.uid,
+                            }),
+                            product: title,
+                            qty,
+                            amountUsd: pendingOrder.uniqueAmount,
+                            network: selectedNet || 'trc20',
+                            orderId: pendingOrder.id,
+                          }),
                         )
-                      }
-                      setPendingOrder(null)
-                      setShowPayment(false)
+                        setPendingOrder(null)
+                        setShowPayment(false)
+                      })()
                     }}
                     onSuccess={() => {
                       if (pendingOrder && selectedNet) {

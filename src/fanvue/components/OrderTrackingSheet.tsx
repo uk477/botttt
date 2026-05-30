@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
 import { openTelegramWithText } from '../utils/telegramLink'
+import { userDeliveryRequest } from '../../../shared/telegramTemplates'
 import type { Order } from '../store/types'
 
 interface Props {
@@ -117,9 +118,13 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
   const paidAt = order.paid_at ? new Date(order.paid_at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
   const qtyStr = order.quantity && order.quantity > 1 ? ` × ${order.quantity}` : ''
 
-  const supportMsg = lang === 'ru'
-    ? `🛍 FANVUE MARKET — Заявка на выдачу\n${'─'.repeat(32)}\n\n📦 Товар:   ${order.product_title ?? 'Товар'}${qtyStr}\n🆔 Заказ:   #${order.id}\n💵 Сумма:   $${order.amount.toFixed(2)}\n📅 Оплачен: ${paidAt}\n${'─'.repeat(32)}\n\n✅ Оплата подтверждена.\nПожалуйста, выдайте товар. Спасибо! 🙏`
-    : `🛍 FANVUE MARKET — Delivery Request\n${'─'.repeat(32)}\n\n📦 Item:    ${order.product_title ?? 'Product'}${qtyStr}\n🆔 Order:   #${order.id}\n💵 Amount:  $${order.amount.toFixed(2)}\n📅 Paid at: ${paidAt}\n${'─'.repeat(32)}\n\n✅ Payment confirmed.\nPlease deliver my order. Thank you! 🙏`
+  const supportMsg = userDeliveryRequest(lang, {
+    product: order.product_title ?? (lang === 'ru' ? 'Товар' : 'Product'),
+    qty: order.quantity,
+    orderId: order.id,
+    amountUsd: order.amount,
+    paidAt,
+  })
 
   function handleSupport() {
     if (alreadyForwarded) return

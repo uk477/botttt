@@ -13,8 +13,10 @@ import { CONFIG } from '../config'
 import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
 import { useCryptoRates, calcCryptoAmount, formatCryptoAmount } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
+import { adminDepositCancelled, formatUserRef } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
 import { rateLimit, rateLimitUndo, isValidAmount, audit } from '../utils/security'
+import { paymentSecondsRemaining } from '../utils/paymentTimer'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
 
 type Step = 'amount' | 'network' | 'pay' | 'success'
@@ -69,27 +71,46 @@ export default function Deposit() {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const [creating, setCreating] = useState(false)
 
-  // Auto-expire any pending deposit older than the timeout when opening the page
-  useEffect(() => {
-    const timeoutMs = CONFIG.paymentTimeoutMinutes * 60 * 1000
-    const now = Date.now()
-    useStore.getState().orders.forEach((o) => {
-      if (o.kind === 'deposit' && o.status === 'pending' && now - new Date(o.created).getTime() > timeoutMs) {
-        useStore.getState().setOrderStatus(o.id, 'expired')
-      }
-    })
-  }, [])
-
   const existingPending = orders.find((o) => o.kind === 'deposit' && o.status === 'pending')
   const [step, setStep] = useState<Step>(() => existingPending ? 'pay' : 'amount')
   const [amount, setAmount] = useState(() => existingPending ? String(existingPending.amount) : '')
   const [network, setNetwork] = useState<CryptoNetwork | null>(() => (existingPending?.provider as CryptoNetwork) ?? null)
-  const [pendingOrder, setPendingOrder] = useState<{ id: string; uniqueAmount: number; createdAt: string; address?: string } | null>(() =>
-    existingPending ? { id: existingPending.id, uniqueAmount: existingPending.amount, createdAt: existingPending.created } : null,
+  const [pendingOrder, setPendingOrder] = useState<{
+    id: string
+    uniqueAmount: number
+    createdAt: string
+    expiresAt?: string
+    address?: string
+  } | null>(() =>
+    existingPending
+      ? {
+          id: existingPending.id,
+          uniqueAmount: existingPending.amount,
+          createdAt: existingPending.created,
+          expiresAt: existingPending.expires_at,
+        }
+      : null,
   )
-  // NOTE: leaving the page does NOT cancel the pending deposit. The order keeps
-  // its 30-minute timer; it only gets cancelled when the user taps "Cancel",
-  // when the timer expires, or when a new deposit is created with another coin.
+  // NOTE: leaving the page / closing Telegram does NOT cancel the deposit.
+  useEffect(() => {
+    if (!existingPending || existingPending.status !== 'pending') return
+    setPendingOrder((prev) => {
+      if (!prev || prev.id !== existingPending.id) {
+        return {
+          id: existingPending.id,
+          uniqueAmount: existingPending.amount,
+          createdAt: existingPending.created,
+          expiresAt: existingPending.expires_at,
+        }
+      }
+      return {
+        ...prev,
+        createdAt: existingPending.created,
+        expiresAt: existingPending.expires_at ?? prev.expiresAt,
+        uniqueAmount: existingPending.amount,
+      }
+    })
+  }, [existingPending?.id, existingPending?.status, existingPending?.created, existingPending?.expires_at, existingPending?.amount])
 
   const numAmount = parseFloat(amount) || 0
   const amountOk = numAmount >= 1
@@ -105,7 +126,18 @@ export default function Deposit() {
     removeNotification(pendingOrder.id)
     setPendingOrder(null)
     void refreshUser()
-    tgNotify(`❌ Депозит отменён\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n💵 $${pendingOrder.uniqueAmount.toFixed(2)} · ${network?.toUpperCase()}\n🆔 ${pendingOrder.id}`)
+    tgNotify(
+      adminDepositCancelled({
+        userLabel: formatUserRef({
+          username: user?.username,
+          full_name: user?.full_name,
+          uid: user?.uid,
+        }),
+        amountUsd: pendingOrder.uniqueAmount,
+        network: network ?? 'trc20',
+        orderId: pendingOrder.id,
+      }),
+    )
   }
 
   const handleContinue = () => {
@@ -127,7 +159,7 @@ export default function Deposit() {
     setCreating(true)
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
-    cancelPendingDeposits()
+    await cancelPendingDeposits()
     const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
     if (api.isEnabled() && !result.ok) {
       rateLimitUndo('deposit')
@@ -140,7 +172,13 @@ export default function Deposit() {
     const orderId = remote?.id ?? generateOrderId('deposit')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(numAmount)
     addOrder({ id: orderId, orderNum: depositCount, kind: 'deposit', amount: uniqueAmount, status: 'pending', provider: network, created: new Date().toISOString() })
-    setPendingOrder({ id: orderId, uniqueAmount, createdAt: new Date().toISOString(), address: remote?.address })
+    setPendingOrder({
+      id: orderId,
+      uniqueAmount,
+      createdAt: new Date().toISOString(),
+      expiresAt: remote?.expires_at,
+      address: remote?.address,
+    })
     addNotification({ orderId, kind: 'deposit', amountUsd: numAmount, uniqueAmount, network })
     setCreating(false)
     setStep('pay')
@@ -317,6 +355,7 @@ export default function Deposit() {
                 amountUsd={numAmount}
                 uniqueAmount={pendingOrder.uniqueAmount}
                 createdAt={pendingOrder.createdAt}
+                expiresAt={pendingOrder.expiresAt}
                 network={cryptoOption.id}
                 cryptoName={cryptoOption.name}
                 cryptoSymbol={cryptoOption.symbol}
@@ -473,7 +512,7 @@ export function NetworkPicker({
 const TOTAL_SECONDS = CONFIG.paymentTimeoutMinutes * 60
 
 export function PayPanel({
-  orderId, amountUsd, uniqueAmount, createdAt, network,
+  orderId, amountUsd, uniqueAmount, createdAt, expiresAt, network,
   cryptoName, cryptoSymbol, cryptoColor, cryptoAddressFallback,
   lang, onCancel, onSuccess,
 }: {
@@ -481,6 +520,7 @@ export function PayPanel({
   amountUsd: number
   uniqueAmount: number
   createdAt?: string
+  expiresAt?: string
   network: CryptoNetwork
   cryptoName: string
   cryptoSymbol: string
@@ -492,11 +532,10 @@ export function PayPanel({
 }) {
   const { haptic } = useTelegram()
   const toast = useToast()
-  const [timer, setTimer] = useState(() => {
-    if (!createdAt) return TOTAL_SECONDS
-    const elapsed = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000)
-    return Math.max(0, TOTAL_SECONDS - elapsed)
-  })
+  const [timer, setTimer] = useState(() =>
+    paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt }),
+  )
+  const [paused, setPaused] = useState(false)
   const [copied, setCopied] = useState(false)
   const [status, setStatus] = useState<OrderStatus>('pending')
   const [stepN, setStepN] = useState(0)
@@ -520,21 +559,34 @@ export function PayPanel({
     return () => { cancelled = true }
   }, [network, cryptoAddressFallback])
 
-  // countdown
   useEffect(() => {
-    const iv = window.setInterval(() => setTimer((p) => (p <= 1 ? 0 : p - 1)), 1000)
-    return () => clearInterval(iv)
+    const onVis = () => setPaused(document.visibilityState !== 'visible')
+    onVis()
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
-  // Auto-expire when the 30-minute window closes
+  useEffect(() => {
+    if (paused) return
+    const iv = window.setInterval(() => {
+      setTimer(paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt }))
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [paused, expiresAt, createdAt])
+
   const expiredRef = useRef(false)
   useEffect(() => {
-    if (timer === 0 && !expiredRef.current && status === 'pending') {
-      expiredRef.current = true
-      useStore.getState().setOrderStatus(orderId, 'expired')
-      setStatus('expired')
-      haptic('error')
-    }
+    if (timer > 0 || expiredRef.current || status !== 'pending') return
+    expiredRef.current = true
+    void (async () => {
+      const s = await fetchOrderStatus(orderId)
+      if (!s) return
+      setStatus(s)
+      if (s === 'expired' || s === 'failed') {
+        useStore.getState().setOrderStatus(orderId, s)
+        haptic('error')
+      }
+    })()
   }, [timer, status, orderId, haptic])
 
   // step reflects real status: 0 = waiting, 1 = detected/confirming, 2 = credited
@@ -547,6 +599,7 @@ export function PayPanel({
   useEffect(() => {
     const tick = async () => {
       const s = await fetchOrderStatus(orderId)
+      if (!s) return
       setStatus(s)
       if (s === 'paid') {
         setStepN(1); hapticRef.current('light')

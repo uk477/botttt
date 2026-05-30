@@ -4,6 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { useStore } from "../store";
 import { useTelegram } from "../hooks/useTelegram";
 import { tgNotify } from "../utils/tgNotify";
+import {
+  adminNewTicket,
+  adminSupportMessage,
+  adminTicketClosed,
+  formatUserRef,
+} from "../../../shared/telegramTemplates";
 import { CONFIG } from "../config";
 import { normalizeTelegramUrl } from "../utils/telegramLink";
 import ConfirmSheet from "../components/ConfirmSheet";
@@ -589,6 +595,11 @@ export default function Support() {
   const lang = useStore((s) => s.lang);
   const user = useStore((s) => s.user);
   const orders = useStore((s) => s.orders);
+  const userLabel = formatUserRef({
+    username: user?.username,
+    full_name: user?.full_name,
+    uid: user?.uid,
+  });
 
   const t = (ru: string, en: string) => (lang === "ru" ? ru : en);
 
@@ -829,7 +840,7 @@ export default function Support() {
         ),
       ]);
       tgNotify(
-        `🆕 Новая заявка ${ticket.id}\n📂 ${cat.ru}\n👤 ${user?.username ? "@" + user.username : user?.full_name ?? "—"} (ID: ${user?.uid})`,
+        adminNewTicket({ ticketId: ticket.id, category: cat.ru, userLabel }),
       );
       return;
     }
@@ -842,7 +853,7 @@ export default function Support() {
       const ticket = openSupportTicket(cat.id);
       replaceFlowMessages([botMessage(t("Опишите ваш вопрос подробно — мы постараемся помочь.", "Describe your question in detail — we'll do our best."), ticket.id)]);
       tgNotify(
-        `🆕 Новая заявка ${ticket.id}\n📂 ${cat.ru}\n👤 ${user?.username ? "@" + user.username : user?.full_name ?? "—"} (ID: ${user?.uid})`,
+        adminNewTicket({ ticketId: ticket.id, category: cat.ru, userLabel }),
       );
       return;
     }
@@ -874,7 +885,12 @@ export default function Support() {
       replaceFlowMessages([botMessage(t(a.prompt.ru, a.prompt.en), ticket.id)]);
       const catLabel = CATEGORIES.find((c) => c.id === a.category);
       tgNotify(
-        `🆕 Новая заявка ${ticket.id}\n📂 ${catLabel?.ru ?? a.category}${a.summary ? " · " + a.summary : ""}\n👤 ${user?.username ? "@" + user.username : user?.full_name ?? "—"} (ID: ${user?.uid})`,
+        adminNewTicket({
+          ticketId: ticket.id,
+          category: catLabel?.ru ?? a.category,
+          userLabel,
+          summary: a.summary,
+        }),
       );
     }
   };
@@ -893,7 +909,6 @@ export default function Support() {
       replaceFlowMessages([botMessage(t(node.q.ru, node.q.en)), flowNodeMessage(parent)]);
     }
   };
-
 
   const sendMessage = () => {
     if (!canWrite) return;
@@ -917,10 +932,22 @@ export default function Support() {
       read_by_admin: false,
     });
 
-    const replyExcerpt = replyTo ? `\n↪ ${(replyTo.text || "[вложение]").slice(0, 80)}` : "";
-    const filesNote = pendingFiles.length > 0 ? `\n📎 ${pendingFiles.length} файл(ов)` : "";
+    const replyExcerpt = replyTo
+      ? `Ответ на: ${(replyTo.text || (lang === "ru" ? "[вложение]" : "[attachment]")).slice(0, 80)}`
+      : "";
+    const filesNote =
+      pendingFiles.length > 0
+        ? lang === "ru"
+          ? `Вложений: ${pendingFiles.length}`
+          : `Attachments: ${pendingFiles.length}`
+        : "";
     tgNotify(
-      `💬 Сообщение в поддержку${activeTicket ? ` · ${activeTicket.id}` : ""}\n👤 ${user?.username ? "@" + user.username : user?.full_name ?? "—"} (ID: ${user?.uid})${replyExcerpt}${filesNote}\n\n${trimmed || "—"}`,
+      adminSupportMessage({
+        ticketId: activeTicket?.id,
+        userLabel,
+        excerpt: trimmed || "—",
+        filesNote: [replyExcerpt, filesNote].filter(Boolean).join(" · ") || undefined,
+      }),
     );
 
     setText("");
@@ -1199,12 +1226,15 @@ export default function Support() {
         danger
         onCancel={() => setConfirmClose(false)}
         onConfirm={() => {
-          setConfirmClose(false);
-          if (!activeTicket) return;
-          closeSupportTicket(activeTicket.id);
-          tgNotify(
-            `✅ Клиент закрыл заявку ${activeTicket.id}\n👤 ${user?.username ? "@" + user.username : user?.full_name ?? "—"} (ID: ${user?.uid})`,
-          );
+          void (async () => {
+            setConfirmClose(false);
+            if (!activeTicket) return;
+            const ok = await closeSupportTicket(activeTicket.id);
+            if (!ok) return;
+            tgNotify(
+              adminTicketClosed({ ticketId: activeTicket.id, userLabel }),
+            );
+          })();
         }}
       />
     </div>

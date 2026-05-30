@@ -100,6 +100,8 @@ export interface Order {
   provider?: string
   quantity?: number
   created: string
+  /** Server payment window end (ISO or SQLite UTC). */
+  expires_at?: string
   paid_at?: string
   txid?: string
   orderNum?: number
@@ -149,6 +151,7 @@ export type SupportTicketCategory = 'payment' | 'delivery' | 'account' | 'operat
 
 export interface SupportTicket {
   id: string
+  uid?: number
   category: SupportTicketCategory
   status: SupportTicketStatus
   opened: string

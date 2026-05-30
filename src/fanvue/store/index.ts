@@ -19,7 +19,7 @@ import type {
   Referral, RealSale, SiteContent, SiteLinks,
 } from './types'
 import { defaultSiteLinks, mergeStoreConfigPatch, type PublicStoreConfig } from './storeConfigSync'
-import { applySupportSessionPayload } from './supportSync'
+import { applySupportSessionPayload, resolveActiveTicket } from './supportSync'
 
 export const CRYPTO_OPTIONS: CryptoOption[] = [
   { id: 'trc20',    name: 'USDT TRC20',  symbol: 'USDT', color: '#26A17B', icon: '₮', address: CONFIG.addresses.trc20 },
@@ -128,6 +128,7 @@ function mapServerOrder(o: Record<string, unknown>): Order {
     status: (o.status as Order['status']) || 'pending',
     provider: String(o.network ?? o.provider ?? ''),
     created: String(o.created_at ?? o.created ?? new Date().toISOString()),
+    expires_at: o.expires_at ? String(o.expires_at) : undefined,
     paid_at: o.paid_at ? String(o.paid_at) : undefined,
     txid: o.tx_hash ? String(o.tx_hash) : o.txid ? String(o.txid) : undefined,
     product_title: o.product_title ? String(o.product_title) : undefined,
@@ -203,7 +204,7 @@ interface AppStore {
   setAdminTyping: (v: boolean) => void
   setAdminPresence: (p: Partial<AdminPresence>) => void
   openSupportTicket: (category: SupportTicketCategory, summary?: string) => SupportTicket
-  closeSupportTicket: (id: string, reason?: string) => void
+  closeSupportTicket: (id: string, reason?: string) => Promise<boolean>
   resetSupportSession: () => void
   clearSupportUnread: () => void
   updateBalance: (delta: number) => void
@@ -219,7 +220,7 @@ interface AppStore {
   completeRefWithdrawal: (id: string, txid: string) => void
   checkAndResetMonthlyReward: () => void
   logDailyRef: (date: string, count?: number) => void
-  cancelPendingDeposits: () => void
+  cancelPendingDeposits: () => Promise<void>
 
   // Admin actions
   setCryptoAddress: (network: CryptoNetwork, address: string) => void
@@ -392,15 +393,17 @@ export const useStore = create<AppStore>()(
             })
           }
 
-          const msgRes = await api.getMessages()
-          const supportSession = applySupportSessionPayload(
-            msgRes as { messages?: unknown[]; tickets?: unknown[] } | null,
-          )
-          if (supportSession) {
-            set({
-              supportMessages: supportSession.messages,
-              supportTickets: supportSession.tickets,
-            })
+          if (!get()._adminVerified) {
+            const msgRes = await api.getMessages()
+            const supportSession = applySupportSessionPayload(
+              msgRes as { messages?: unknown[]; tickets?: unknown[] } | null,
+            )
+            if (supportSession) {
+              set({
+                supportMessages: supportSession.messages,
+                supportTickets: supportSession.tickets,
+              })
+            }
           }
 
           const catalog = await api.getProducts()
@@ -590,9 +593,13 @@ export const useStore = create<AppStore>()(
       setAdminPresence: (p) => set((s) => ({ adminPresence: { ...s.adminPresence, ...p } })),
 
       openSupportTicket: (category, summary) => {
+        const existing = resolveActiveTicket(get().supportTickets, get().supportMessages)
+        if (existing) return existing
+
         const id = 'FV-' + Math.floor(1000 + Math.random() * 9000)
+        const uid = get().user?.uid
         const ticket: SupportTicket = {
-          id, category, status: 'open',
+          id, uid, category, status: 'open',
           opened: new Date().toISOString(),
           summary,
         }
@@ -616,10 +623,18 @@ export const useStore = create<AppStore>()(
         return ticket
       },
 
-      closeSupportTicket: (id, reason) =>
+      closeSupportTicket: async (id, reason) => {
+        if (api.isEnabled()) {
+          const res = get()._adminVerified
+            ? await api.adminCloseTicket(id, reason)
+            : await api.closeSupportTicket(id, reason)
+          if (!res?.ok) return false
+        }
+        const closedAt = new Date().toISOString()
+        const reasonTag = reason ? `:${reason}` : ''
         set((s) => ({
           supportTickets: s.supportTickets.map((t) =>
-            t.id === id ? { ...t, status: 'closed', closed: new Date().toISOString() } : t,
+            t.id === id ? { ...t, status: 'closed', closed: closedAt } : t,
           ),
           supportMessages: [
             ...s.supportMessages,
@@ -627,12 +642,14 @@ export const useStore = create<AppStore>()(
               id: Date.now(),
               sender: 'bot',
               kind: 'system',
-              text: `ticket_closed:${id}${reason ? ':' + reason : ''}`,
-              created: new Date().toISOString(),
+              text: `ticket_closed:${id}${reasonTag}`,
+              created: closedAt,
               ticket_id: id,
             },
           ],
-        })),
+        }))
+        return true
+      },
 
       resetSupportSession: () =>
         set((s) => ({
@@ -780,12 +797,12 @@ export const useStore = create<AppStore>()(
           return {}
         }),
 
-      cancelPendingDeposits: () => {
+      cancelPendingDeposits: async () => {
         const pending = get().orders.filter(
           (o) => o.kind === 'deposit' && o.status === 'pending',
         )
         if (api.isEnabled()) {
-          for (const o of pending) void api.cancelOrder(o.id)
+          await Promise.all(pending.map((o) => api.cancelOrder(o.id)))
         }
         set((s) => ({
           orders: s.orders.map((o) =>
@@ -886,19 +903,17 @@ export const useStore = create<AppStore>()(
             }
             patch.adminUserByUid = byUid
           }
+          const refRes = await api.adminRefWithdrawals()
+          if (Array.isArray(refRes)) {
+            patch.refWithdrawals = refRes as AppStore['refWithdrawals']
+          }
           if (supportRes && typeof supportRes === 'object') {
-            const sr = supportRes as { tickets?: SupportTicket[]; messages?: SupportMessage[] }
-            if (Array.isArray(sr.messages)) {
-              const session = applySupportSessionPayload({
-                messages: sr.messages,
-                tickets: sr.tickets as unknown[] | undefined,
-              })
-              if (session) {
-                patch.supportMessages = session.messages
-                patch.supportTickets = session.tickets
-              }
+            const sr = supportRes as { tickets?: unknown[]; messages?: unknown[] }
+            const session = applySupportSessionPayload(sr)
+            if (session) {
+              patch.supportMessages = session.messages
+              patch.supportTickets = session.tickets
             }
-            if (Array.isArray(sr.tickets)) patch.supportTickets = sr.tickets
           }
           if (productsRes && typeof productsRes === 'object') {
             const pr = productsRes as { products?: Product[]; categories?: Category[]; pinned?: number[] }
@@ -987,7 +1002,9 @@ export const useStore = create<AppStore>()(
               : s.supportMessages,
           }
         })
-        if (api.isEnabled()) api.adminPatchOrder(id, { status })
+        if (api.isEnabled() && get()._adminVerified) {
+          void api.adminPatchOrder(id, { status })
+        }
       },
 
       setOrderDelivery: (id, deliveryData) => {

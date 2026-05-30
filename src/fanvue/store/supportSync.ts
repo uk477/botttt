@@ -13,10 +13,11 @@ export function mapServerSupportTicket(row: Record<string, unknown>): SupportTic
   const valid: SupportTicketCategory[] = ['payment', 'delivery', 'account', 'operator', 'other']
   return {
     id: String(row.id),
+    uid: row.uid != null ? Number(row.uid) : undefined,
     category: (valid.includes(cat as SupportTicketCategory) ? cat : 'other') as SupportTicketCategory,
     status: row.status === 'closed' ? 'closed' : 'open',
     opened: toIsoString(String(row.opened ?? row.created_at ?? '')),
-    closed: row.closed ? toIsoString(String(row.closed)) : undefined,
+    closed: row.closed ? toIsoString(String(row.closed ?? row.closed_at)) : undefined,
     summary: row.summary != null ? String(row.summary) : undefined,
   }
 }
@@ -62,6 +63,48 @@ export function resolveActiveTicket(
   }
   const rebuilt = rebuildTicketsFromMessages(messages)
   return rebuilt.find((t) => t.status !== 'closed') ?? null
+}
+
+/** Open ticket for a specific user (admin chat). */
+export function resolveActiveTicketForUid(
+  uid: number,
+  tickets: SupportTicket[],
+  messages: SupportMessage[],
+): SupportTicket | null {
+  const forUser = tickets.filter((t) => {
+    if (t.uid !== uid || t.status === 'closed') return false
+    const closedInChat = messages.some(
+      (m) => m.kind === 'system' && m.text.startsWith(`ticket_closed:${t.id}`),
+    )
+    return !closedInChat
+  })
+  if (forUser.length > 0) return forUser[0]
+
+  const userMsgs = messages.filter((m) => (m as SupportMessage & { uid?: number }).uid === uid)
+  for (let i = userMsgs.length - 1; i >= 0; i--) {
+    const m = userMsgs[i]
+    if (m.kind !== 'system') continue
+    if (m.text.startsWith('ticket_closed:')) continue
+    if (m.text.startsWith('ticket_opened:')) {
+      const id = m.text.slice('ticket_opened:'.length).split(':')[0]?.trim()
+      if (!id) continue
+      const closed = userMsgs.some(
+        (x) => x.kind === 'system' && x.text.startsWith(`ticket_closed:${id}`),
+      )
+      if (!closed) {
+        return (
+          tickets.find((t) => t.id === id) ?? {
+            id,
+            uid,
+            category: 'operator',
+            status: 'open',
+            opened: m.created,
+          }
+        )
+      }
+    }
+  }
+  return null
 }
 
 export function applySupportSessionPayload(

@@ -5,6 +5,8 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useTelegram } from '../hooks/useTelegram'
 import { tgNotify, notifyAdmin, notifyUserTemplated } from '../utils/tgNotify'
+import { adminOrderDelivered } from '../../../shared/telegramTemplates'
+import { resolveActiveTicketForUid } from '../store/supportSync'
 import { CONFIG } from '../config'
 import type { SupportMessage, SupportTicket } from '../store/types'
 import OrderReceiptMessage from '../components/OrderReceiptMessage'
@@ -105,7 +107,10 @@ export default function AdminSupport() {
 
   const lastMsg = visibleMessages[visibleMessages.length - 1]
   const unreadCount = messages.filter((m) => m.sender === 'user' && !m.read_by_admin).length
-  const activeTicket = tickets.find((tk) => tk.status !== 'closed')
+  const activeTicket = useMemo(
+    () => (openUid != null ? resolveActiveTicketForUid(openUid, tickets, messages) : null),
+    [openUid, tickets, messages],
+  )
 
   const groups: ChatGroup[] = useMemo(() => {
     const byUid = new Map<number, SupportMessageWithUid[]>()
@@ -126,7 +131,6 @@ export default function AdminSupport() {
       const vis = msgs.filter((m) => m.kind !== 'system' || m.text.startsWith('ticket_'))
       const last = vis[vis.length - 1] ?? msgs[msgs.length - 1]
       const unread = msgs.filter((m) => m.sender === 'user' && !m.read_by_admin).length
-      const ticket = tickets.find((tk) => tk.status !== 'closed')
       return {
         uid,
         username: uid === realUid ? realName : `user_${uid}`,
@@ -135,10 +139,10 @@ export default function AdminSupport() {
         messages: msgs,
         last,
         unread,
-        activeTicket: ticket,
+        activeTicket: resolveActiveTicketForUid(uid, tickets, messages),
       }
     }).sort((a, b) => new Date(b.last.created).getTime() - new Date(a.last.created).getTime())
-  }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, activeTicket, lastMsg])
+  }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, lastMsg])
 
   useEffect(() => {
     if (!api.isEnabled()) return
@@ -227,13 +231,20 @@ export default function AdminSupport() {
 
   const chatUser = groups.find((g) => g.uid === openUid)
 
+  const chatVisibleMessages = useMemo(() => {
+    if (!chatUser) return []
+    return chatUser.messages.filter(
+      (m) => m.kind !== 'system' || m.text.startsWith('ticket_'),
+    )
+  }, [chatUser])
+
   const chatOrderId = (() => {
-    // Сначала ищем по order_receipt (надёжно), затем по #ID в тексте
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
+    const scope = chatUser?.messages ?? messages
+    for (let i = scope.length - 1; i >= 0; i--) {
+      const m = scope[i]
       if (m.kind === 'order_receipt' && m.order_receipt?.orderId) return m.order_receipt.orderId
     }
-    for (const m of messages) {
+    for (const m of scope) {
       const match = m.text.match(/#([\w-]+)/)
       if (match) return match[1]
     }
@@ -287,9 +298,13 @@ export default function AdminSupport() {
   }
   const handleReply = (m: SupportMessage) => { setReplyTo(m); setActionMsg(null); inputRef.current?.focus() }
 
-  const handleCloseTicket = () => {
+  const handleCloseTicket = async () => {
     if (!activeTicket) return
-    haptic('success'); closeTicket(activeTicket.id, 'admin'); setConfirmClose(false)
+    const ok = await closeTicket(activeTicket.id, 'admin')
+    if (!ok) return
+    haptic('success')
+    setConfirmClose(false)
+    if (api.isEnabled()) await syncAdminData()
   }
   const handleIssueBalance = async () => {
     const amt = parseFloat(balanceInput)
@@ -320,7 +335,12 @@ export default function AdminSupport() {
       }, lang)
     }
     notifyAdmin(
-      `<b>Выдача</b>\n\n${chatOrder.product_title ?? 'Товар'} · $${chatOrder.amount.toFixed(2)}\nUID: ${openUid ?? '—'} · ${time}`,
+      adminOrderDelivered({
+        product: chatOrder.product_title ?? (lang === 'ru' ? 'Товар' : 'Product'),
+        amountUsd: chatOrder.amount,
+        uid: openUid,
+        time,
+      }),
     )
   }
 
@@ -530,13 +550,13 @@ export default function AdminSupport() {
               {/* ── Messages ── */}
               <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '4px 2px 12px' }}>
                 <AnimatePresence initial={false}>
-                  {visibleMessages.map((m, i) => {
+                  {chatVisibleMessages.map((m, i) => {
                     const right = m.sender === 'admin'
                     const isSystem = m.kind === 'system'
                     const deletedForUser = m.deleted_for === 'user'
-                    const replyMsg = m.reply_to ? messages.find((x) => x.id === m.reply_to) : null
-                    const prev = visibleMessages[i - 1]
-                    const next = visibleMessages[i + 1]
+                    const replyMsg = m.reply_to ? chatUser.messages.find((x) => x.id === m.reply_to) : null
+                    const prev = chatVisibleMessages[i - 1]
+                    const next = chatVisibleMessages[i + 1]
                     const isLast = !next || next.sender !== m.sender || next.kind === 'system'
                     const isFirst = !prev || prev.sender !== m.sender || prev.kind === 'system'
 

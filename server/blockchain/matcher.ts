@@ -16,7 +16,8 @@ const STABLECOINS = new Set(["trc20", "erc20", "bep20", "usdc_eth", "usdc_sol"])
 
 function amountMatches(order: OrderRow, txAmount: number): boolean {
   if (STABLECOINS.has(order.network)) {
-    return Math.abs(txAmount - order.amount_usd) < 0.01;
+    const expected = order.amount_crypto > 0 ? order.amount_crypto : order.amount_usd;
+    return Math.abs(txAmount - expected) < 0.001;
   }
   const expected = order.amount_crypto;
   if (expected <= 0) return false;
@@ -27,11 +28,20 @@ function amountMatches(order: OrderRow, txAmount: number): boolean {
 export function matchTransaction(tx: IncomingTx): OrderRow | null {
   if (transactions.exists(tx.tx_hash)) return null;
 
-  const pending = orders.getPending(tx.network);
+  const pending = orders.getPending(tx.network).filter((order) => {
+    if (!order.wallet) return true;
+    return order.wallet.toLowerCase() === tx.to_addr.toLowerCase();
+  });
   if (pending.length === 0) return null;
 
-  for (const order of pending) {
-    if (amountMatches(order, tx.amount)) {
+  const matches = pending.filter((order) => amountMatches(order, tx.amount));
+  if (matches.length > 1) {
+    console.warn(
+      `[matcher] ambiguous amount ${tx.amount} ${tx.network} — ${matches.length} pending orders; using oldest`,
+    );
+  }
+  const order = matches[0];
+  if (order) {
       orders.markPaid(order.id, tx.tx_hash);
       transactions.insert({ ...tx, order_id: order.id });
 
@@ -52,7 +62,6 @@ export function matchTransaction(tx: IncomingTx): OrderRow | null {
       }, 5000);
 
       return order;
-    }
   }
 
   transactions.insert({ ...tx, order_id: null });

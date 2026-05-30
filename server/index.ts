@@ -12,6 +12,7 @@ import notifyRouter from "./routes/notify.js";
 import telegramRouter from "./routes/telegram.js";
 import adminRouter from "./routes/admin.js";
 import { startPoller } from "./blockchain/poller.js";
+import { isValidTronBase58Address } from "./blockchain/tronAddress.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "..", "..", "dist");
@@ -97,7 +98,9 @@ app.get("/api/health", (_req, res) => {
 // ── Test notification (admin only, for debugging) ───────────────────
 app.get("/api/test-notify", async (_req, res) => {
   const { notifyAdmin } = await import("./telegram.js");
-  const ok = await notifyAdmin("✅ Тестовое уведомление — если видишь это, уведомления работают!");
+  const ok = await notifyAdmin(
+    "<b>Fanvue Market</b>\n\nТестовое уведомление. Канал доставки работает.",
+  );
   const rawWebApp = process.env.WEBAPP_URL || process.env.VITE_SITE_URL || "";
   res.json({
     ok,
@@ -143,6 +146,13 @@ app.listen(ENV.port, () => {
     .filter(([, v]) => !!v)
     .map(([k]) => k);
   console.log(`  Wallets configured: ${configuredNetworks.join(", ") || "none"}`);
+  if (ENV.addr.trc20) {
+    const ok = isValidTronBase58Address(ENV.addr.trc20);
+    console.log(
+      `  TRC20 wallet: ${ok ? "✅ valid" : "❌ INVALID (poller will not detect USDT)"} · ${ENV.addr.trc20.slice(0, 10)}…`,
+    );
+  }
+  console.log(`  TRONGRID_API_KEY: ${ENV.trongridKey ? "set" : "not set (optional)"}`);
   console.log(`  ADMIN_CHAT_ID: ${ENV.adminChatId || "⚠️  NOT SET"}`);
   console.log(`  WEBAPP_URL: ${ENV.webAppUrl || "⚠️  NOT SET"}`);
   console.log(`  NOTIFY_GROUP_ID: ${ENV.notifyGroupId || "not set"}`);

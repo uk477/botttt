@@ -1,4 +1,8 @@
 import { orders, users, adminLogs, type OrderRow } from "./db.js";
+import {
+  adminDepositConfirmed,
+  adminPaymentConfirmed,
+} from "../shared/telegramTemplates.js";
 import { notifyAdmin, notifyUserTemplated } from "./telegram.js";
 
 /** After order is `paid`, mark completed, credit deposits, log, and notify. */
@@ -46,8 +50,18 @@ export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolea
 
   notifyAdmin(
     isDeposit
-      ? `<b>Депозит подтверждён</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}`
-      : `<b>Оплата подтверждена</b>\n\n$${order.amount_usd} · ${order.network.toUpperCase()}\nUID: ${order.uid} · ${time}`,
+      ? adminDepositConfirmed({
+          amountUsd: order.amount_usd,
+          network: order.network,
+          uid: order.uid,
+          time,
+        })
+      : adminPaymentConfirmed({
+          amountUsd: order.amount_usd,
+          network: order.network,
+          uid: order.uid,
+          time,
+        }),
   );
 
   notifyUserTemplated(

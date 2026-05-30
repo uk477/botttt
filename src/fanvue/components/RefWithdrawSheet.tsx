@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, type CSSProperties, type PointerEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, CRYPTO_OPTIONS } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { tgNotify } from '../utils/tgNotify'
+import { adminRefWithdraw, formatUserRef } from '../../../shared/telegramTemplates'
 import { isValidCryptoAddress, isValidAmount, rateLimit, audit, sanitizeText } from '../utils/security'
 import CryptoLogo from './CryptoLogo'
 import type { CryptoNetwork, RefWithdrawal } from '../store/types'
@@ -172,7 +174,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
 
   const [addressError, setAddressError] = useState<string | null>(null)
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!network) return
     if (!isValidAmount(amountNum, MIN_WITHDRAW, balance)) return
     const freshBalance = useStore.getState().user?.ref_balance ?? 0
@@ -184,13 +186,54 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
     if (!rateLimit('ref_withdraw', 3, 120_000)) return
     const sanitizedAddr = sanitizeText(address.trim())
     audit('ref_withdraw', user?.uid, { amount: amountNum, network, address: sanitizedAddr })
-    const newId = `RW-${Date.now()}`
-    spendRefBalance(amountNum)
-    addRefWithdrawal({ id: newId, uid: user?.uid, amount: amountNum, network, address: sanitizedAddr, status: 'pending' } as Parameters<typeof addRefWithdrawal>[0])
+
+    let newId = `RW-${Date.now()}`
+    if (api.isEnabled()) {
+      const res = await api.refWithdraw({
+        amount: amountNum,
+        network,
+        address: sanitizedAddr,
+      }) as { ok?: boolean; id?: string; error?: string } | null
+      if (!res?.ok) {
+        setAddressError(
+          res?.error === 'Insufficient ref balance'
+            ? lang === 'ru'
+              ? 'Недостаточно реф. баланса'
+              : 'Insufficient ref balance'
+            : lang === 'ru'
+              ? 'Не удалось создать заявку. Попробуйте позже.'
+              : 'Could not submit withdrawal. Try again later.',
+        )
+        return
+      }
+      if (res.id) newId = res.id
+      await useStore.getState().refreshUser()
+    } else {
+      spendRefBalance(amountNum)
+    }
+
+    addRefWithdrawal({
+      id: newId,
+      uid: user?.uid,
+      amount: amountNum,
+      network,
+      address: sanitizedAddr,
+      status: 'pending',
+    } as Parameters<typeof addRefWithdrawal>[0])
     setCreatedId(newId)
     haptic('success')
     tgNotify(
-      `💸 Реферальный вывод\n🆔 ${newId}\n👤 ${user?.username ? '@' + user.username : user?.full_name ?? '—'} (ID: ${user?.uid})\n💵 $${amountNum.toFixed(2)} · ${network.toUpperCase()}\n📬 ${sanitizedAddr}`,
+      adminRefWithdraw({
+        refId: newId,
+        userLabel: formatUserRef({
+          username: user?.username,
+          full_name: user?.full_name,
+          uid: user?.uid,
+        }),
+        amountUsd: amountNum,
+        network,
+        address: sanitizedAddr,
+      }),
     )
     setStep('done')
   }

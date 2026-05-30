@@ -9,6 +9,7 @@ import {
   paymentUri, fetchOrderStatus,
 } from '../utils/payment'
 import { useCryptoRates, calcCryptoAmount, formatCryptoAmount } from '../hooks/useCryptoRates'
+import { paymentSecondsRemaining } from '../utils/paymentTimer'
 import CryptoLogo from './CryptoLogo'
 import type { CryptoOption, OrderStatus, OrderKind } from '../store/types'
 
@@ -17,6 +18,7 @@ interface Props {
   amountUsd: number
   uniqueAmount: number
   createdAt?: string
+  expiresAt?: string
   crypto: CryptoOption
   kind: OrderKind
   onCancel: () => void
@@ -26,16 +28,16 @@ interface Props {
 const TOTAL_SECONDS = CONFIG.paymentTimeoutMinutes * 60
 
 export default function PaymentWaiting({
-  orderId, amountUsd, uniqueAmount, createdAt, crypto, kind, onCancel, onSuccess,
+  orderId, amountUsd, uniqueAmount, createdAt, expiresAt, crypto, kind, onCancel, onSuccess,
 }: Props) {
   const t = useT()
   const lang = useStore((s) => s.lang)
   const { haptic } = useTelegram()
-  const [timer, setTimer] = useState(() => {
-    if (!createdAt) return TOTAL_SECONDS
-    const elapsed = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000)
-    return Math.max(0, TOTAL_SECONDS - elapsed)
-  })
+  const [timer, setTimer] = useState(() =>
+    paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt }),
+  )
+  const [paused, setPaused] = useState(false)
+  const [timedOut, setTimedOut] = useState(false)
   const [copied, setCopied] = useState(false)
   const [status, setStatus] = useState<OrderStatus>('pending')
   const [step, setStep] = useState(0)  // 0=connecting, 1=watching, 2=confirmed
@@ -52,21 +54,25 @@ export default function PaymentWaiting({
   const cryptoAmount = calcCryptoAmount(uniqueAmount, crypto.id, rates)
   const qrData = paymentUri(crypto.id, liveAddress, cryptoAmount)
 
-  // Countdown timer
   useEffect(() => {
+    const onVis = () => setPaused(document.visibilityState !== 'visible')
+    onVis()
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  useEffect(() => {
+    if (paused) return
     intervalRef.current = window.setInterval(() => {
-      setTimer((p) => {
-        if (p <= 1) {
-          if (intervalRef.current) clearInterval(intervalRef.current)
-          onCancel()
-          return 0
-        }
-        return p - 1
-      })
+      const left = paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt })
+      setTimer(left)
+      if (left <= 0) {
+        if (intervalRef.current) clearInterval(intervalRef.current)
+        setTimedOut(true)
+      }
     }, 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [paused, expiresAt, createdAt])
 
   // Step animation: 0 → 1 after 1.5s, demo only
   useEffect(() => {
@@ -78,9 +84,11 @@ export default function PaymentWaiting({
   useEffect(() => {
     const tick = async () => {
       const s = await fetchOrderStatus(orderId)
+      if (!s) return
       setStatus(s)
       if (s === 'expired' || s === 'failed') {
-        onCancel()
+        setTimedOut(true)
+        setStatus(s)
       } else if (kind === 'deposit') {
         if (s === 'paid') setStep(1)
         if (s === 'completed') {

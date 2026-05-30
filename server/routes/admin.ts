@@ -7,7 +7,10 @@ import {
   validateBroadcastKeyboard,
   type BroadcastKeyboardInput,
 } from "../../shared/broadcastKeyboard.js";
-import type { NotifyLang } from "../../shared/telegramTemplates.js";
+import {
+  adminSupportInbound,
+  type NotifyLang,
+} from "../../shared/telegramTemplates.js";
 import {
   orders,
   users,
@@ -438,9 +441,87 @@ router.post("/api/admin/settings", (req: Request, res: Response) => {
 // ── Admin Support ──────────────────────────────────────────────────
 router.get("/api/admin/support", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  const tickets = support.getTickets();
+  const tickets = support.getTickets() as {
+    id: string;
+    uid: number;
+    category: string;
+    status: string;
+    summary: string | null;
+    created_at: string;
+    closed_at: string | null;
+  }[];
   const messages = support.getAllMessages();
-  res.json({ tickets, messages });
+  res.json({
+    tickets: tickets.map((tk) => ({
+      id: tk.id,
+      uid: tk.uid,
+      category: tk.category,
+      status: tk.status === "closed" ? "closed" : "open",
+      opened: tk.created_at,
+      closed: tk.closed_at ?? undefined,
+      summary: tk.summary ?? undefined,
+    })),
+    messages,
+  });
+});
+
+router.post("/api/admin/support/ticket/:id/close", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const id = String(req.params.id ?? "").trim();
+  if (!id) {
+    res.status(400).json({ error: "Invalid ticket id" });
+    return;
+  }
+  const row = support.getTicket(id);
+  if (!row) {
+    res.status(404).json({ error: "Ticket not found" });
+    return;
+  }
+  if (row.status === "closed") {
+    res.json({ ok: true, alreadyClosed: true });
+    return;
+  }
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.slice(0, 200) : "admin";
+  support.closeTicket(id);
+  support.addMessage({
+    uid: row.uid,
+    sender: "bot",
+    kind: "system",
+    text: `ticket_closed:${id}:${reason}`,
+    ticket_id: id,
+  });
+  res.json({ ok: true });
+});
+
+router.post("/api/support/ticket/:id/close", (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const id = String(req.params.id ?? "").trim();
+  const row = support.getTicket(id);
+  if (!row || row.uid !== user.id) {
+    res.status(404).json({ error: "Ticket not found" });
+    return;
+  }
+  if (row.status === "closed") {
+    res.json({ ok: true });
+    return;
+  }
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.slice(0, 200) : "user";
+  support.closeTicket(id);
+  support.addMessage({
+    uid: user.id,
+    sender: "bot",
+    kind: "system",
+    text: `ticket_closed:${id}:${reason}`,
+    ticket_id: id,
+  });
+  res.json({ ok: true });
 });
 
 router.post("/api/admin/support/:uid", async (req: Request, res: Response) => {
@@ -504,6 +585,22 @@ router.post("/api/support/ticket", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid category" }); return;
   }
 
+  const existingOpen = support.getOpenTicketByUid(user.id);
+  if (existingOpen) {
+    res.json({
+      ok: true,
+      ticket: {
+        id: existingOpen.id,
+        category: existingOpen.category,
+        status: "open" as const,
+        opened: existingOpen.created_at,
+        summary: existingOpen.summary ?? undefined,
+      },
+      existing: true,
+    });
+    return;
+  }
+
   const id =
     typeof clientId === "string" && /^FV-\d{4}$/.test(clientId)
       ? clientId
@@ -549,7 +646,7 @@ router.post("/api/support/message", async (req: Request, res: Response) => {
   const userName = user.username ? `@${user.username}` : user.first_name;
   const preview = text.length > 400 ? text.slice(0, 400) + "…" : text;
   notifyAdmin(
-    `<b>Сообщение в поддержку</b>\n\n${userName} · UID ${user.id}\n\n${preview}`,
+    adminSupportInbound({ userLabel: userName, uid: user.id, preview }),
   );
   res.json({ ok: true });
 });
@@ -586,7 +683,11 @@ router.post("/api/ref/withdraw", refWithdrawLimiter, (req: Request, res: Respons
   }
 
   const id = `RW-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  refWithdrawals.create({ id, uid: user.id, amount, network, address });
+  const ok = refWithdrawals.create({ id, uid: user.id, amount, network, address });
+  if (!ok) {
+    res.status(400).json({ error: "Insufficient ref balance" });
+    return;
+  }
 
   res.json({ ok: true, id });
 });

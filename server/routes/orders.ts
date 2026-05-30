@@ -1,12 +1,18 @@
 import { Router, type Request, type Response } from "express";
 import crypto from "node:crypto";
 import rateLimit from "express-rate-limit";
+import {
+  adminBalanceOrder,
+  adminNewDeposit,
+  adminNewOrder,
+} from "../../shared/telegramTemplates.js";
 import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
 import { readMaintenanceFlag } from "../storeConfig.js";
 import { orders, users, products, adminLogs } from "../db.js";
 import { ENV } from "../env.js";
 import { getPublicStoreConfig } from "../storeConfig.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
+import { toSqliteUtc } from "../utils/sqliteTime.js";
 
 const router = Router();
 
@@ -132,7 +138,7 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
   const amountCrypto = usdToCrypto(uniqueUsd, network, rates);
 
   const id = generateOrderId(kind as "buy" | "deposit");
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
 
   orders.create({
     id,
@@ -155,8 +161,20 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
 
   notifyAdmin(
     isDeposit
-      ? `<b>Новый депозит</b>\n\n${userName} · $${uniqueUsd.toFixed(2)}\n${network.toUpperCase()} · ${time}\n<code>${id}</code>`
-      : `<b>Новый заказ</b>\n\n${userName} · $${uniqueUsd.toFixed(2)}\n${network.toUpperCase()} · ${time}\n<code>${id}</code>`,
+      ? adminNewDeposit({
+          userLabel: userName,
+          amountUsd: uniqueUsd,
+          network,
+          orderId: id,
+          time,
+        })
+      : adminNewOrder({
+          userLabel: userName,
+          amountUsd: uniqueUsd,
+          network,
+          orderId: id,
+          time,
+        }),
   );
 
   notifyUserTemplated(
@@ -240,7 +258,7 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   }
 
   const id = generateOrderId("buy");
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
   orders.create({
     id,
     uid: user.id,
@@ -298,7 +316,14 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   });
 
   notifyAdmin(
-    `<b>Заказ (баланс)</b>\n\n${userName} · ${title} × ${qty}\n$${total.toFixed(2)} · ${time}\n<code>${id}</code>`,
+    adminBalanceOrder({
+      userLabel: userName,
+      product: title,
+      qty,
+      amountUsd: total,
+      orderId: id,
+      time,
+    }),
   );
 
   const lang = user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en";

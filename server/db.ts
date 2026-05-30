@@ -108,7 +108,9 @@ const stmts = {
   `),
   getOrder: db.prepare(`SELECT * FROM orders WHERE id = ?`),
   getOrdersByUid: db.prepare(`SELECT * FROM orders WHERE uid = ? ORDER BY created_at DESC LIMIT 50`),
-  getPending: db.prepare(`SELECT * FROM orders WHERE status = 'pending' AND network = ?`),
+  getPending: db.prepare(
+    `SELECT * FROM orders WHERE status = 'pending' AND network = ? ORDER BY created_at ASC`,
+  ),
   getAllPending: db.prepare(`SELECT * FROM orders WHERE status = 'pending'`),
   updateStatus: db.prepare(`UPDATE orders SET status = @status WHERE id = @id`),
   markPaid: db.prepare(`
@@ -121,7 +123,8 @@ const stmts = {
   `),
   expireOld: db.prepare(`
     UPDATE orders SET status = 'expired'
-    WHERE status = 'pending' AND expires_at < datetime('now')
+    WHERE status = 'pending'
+      AND datetime(replace(replace(substr(expires_at, 1, 19), 'T', ' '), 'Z', '')) < datetime('now')
   `),
   insertTx: db.prepare(`
     INSERT OR IGNORE INTO transactions (tx_hash, network, from_addr, to_addr, amount, token, block, ts, order_id)
@@ -139,6 +142,12 @@ const userStmts = {
   `),
   get: db.prepare(`SELECT * FROM users WHERE uid = ?`),
   credit: db.prepare(`UPDATE users SET balance = balance + @amount WHERE uid = @uid`),
+  debitRefBalance: db.prepare(
+    `UPDATE users SET ref_balance = ref_balance - @amount WHERE uid = @uid AND ref_balance >= @amount`,
+  ),
+  creditRefBalance: db.prepare(
+    `UPDATE users SET ref_balance = ref_balance + @amount WHERE uid = @uid`,
+  ),
   debitPurchase: db.prepare(`
     UPDATE users SET
       balance = balance - @amount,
@@ -216,8 +225,11 @@ export interface RefWithdrawalRow {
 }
 
 export const refWithdrawals = {
-  create(rw: { id: string; uid: number; amount: number; network: string; address: string }) {
+  create(rw: { id: string; uid: number; amount: number; network: string; address: string }): boolean {
+    const debited = userStmts.debitRefBalance.run({ uid: rw.uid, amount: rw.amount });
+    if (debited.changes === 0) return false;
     rwStmts.insert.run(rw);
+    return true;
   },
   get(id: string) {
     return rwStmts.get.get(id) as RefWithdrawalRow | undefined;
@@ -231,8 +243,14 @@ export const refWithdrawals = {
   approve(id: string, txid: string) {
     rwStmts.approve.run({ id, txid });
   },
-  reject(id: string, reason: string) {
-    rwStmts.reject.run({ id, reason });
+  reject(id: string, reason: string): boolean {
+    const rw = refWithdrawals.get(id);
+    if (!rw || rw.status !== "pending") return false;
+    const r = rwStmts.reject.run({ id, reason });
+    if (r.changes > 0) {
+      userStmts.creditRefBalance.run({ uid: rw.uid, amount: rw.amount });
+    }
+    return r.changes > 0;
   },
 };
 
@@ -500,7 +518,7 @@ const supportStmts = {
     ON CONFLICT(id) DO UPDATE SET status = excluded.status, closed_at = excluded.closed_at
   `),
   getMessages: db.prepare(`SELECT * FROM support_messages WHERE uid = ? ORDER BY created_at`),
-  getAllMessages: db.prepare(`SELECT * FROM support_messages ORDER BY created_at DESC LIMIT 1000`),
+  getAllMessages: db.prepare(`SELECT * FROM support_messages ORDER BY created_at ASC LIMIT 2000`),
   insertMessage: db.prepare(`
     INSERT INTO support_messages (ticket_id, uid, sender, kind, text)
     VALUES (@ticket_id, @uid, @sender, @kind, @text)
@@ -654,8 +672,35 @@ export const support = {
   upsertTicket(t: { id: string; uid: number; category: string; status: string; summary?: string | null; closed_at?: string | null }) {
     supportStmts.upsertTicket.run({ ...t, summary: t.summary ?? null, closed_at: t.closed_at ?? null });
   },
+  closeTicket(id: string) {
+    db.prepare(
+      `UPDATE support_tickets SET status = 'closed', closed_at = datetime('now') WHERE id = ?`,
+    ).run(id);
+  },
+  getTicket(id: string) {
+    return db.prepare(`SELECT * FROM support_tickets WHERE id = ?`).get(id) as {
+      id: string;
+      uid: number;
+      status: string;
+    } | undefined;
+  },
   getMessages(uid: number) {
     return supportStmts.getMessages.all(uid);
+  },
+  getOpenTicketByUid(uid: number) {
+    return db
+      .prepare(
+        `SELECT * FROM support_tickets WHERE uid = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(uid) as {
+      id: string;
+      uid: number;
+      category: string;
+      status: string;
+      summary: string | null;
+      created_at: string;
+      closed_at: string | null;
+    } | undefined;
   },
   getTicketsByUid(uid: number) {
     return db

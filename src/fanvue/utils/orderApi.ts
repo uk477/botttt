@@ -114,15 +114,16 @@ export async function createOrder(payload: {
   }
 }
 
-export async function fetchOrderStatus(orderId: string): Promise<OrderStatus> {
+/** null = network/auth error — caller should not treat as still pending */
+export async function fetchOrderStatus(orderId: string): Promise<OrderStatus | null> {
   try {
     const res = await fetch(apiPath(`/api/order/${encodeURIComponent(orderId)}`), {
       headers: authHeaders(),
     })
-    if (!res.ok) return 'pending'
+    if (!res.ok) return null
     const data = (await res.json()) as { status?: OrderStatus }
-    return data.status ?? 'pending'
+    return data.status ?? null
   } catch {
-    return 'pending'
+    return null
   }
 }
