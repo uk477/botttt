@@ -2964,24 +2964,20 @@ body.pay-sheet-open,
 .fv-pay-sheet {
   width: 100%;
   max-width: 560px;
-  max-height: min(calc(var(--tg-vh, 100dvh) - 12px), 96dvh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 10px 0 0;
+  max-height: min(calc(var(--tg-vh, 100dvh) - 8px), 96dvh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 10px 16px calc(28px + env(safe-area-inset-bottom, 0px) + var(--tg-bottom, 0px));
   border-radius: 32px 32px 0 0;
   background: var(--fv-panel);
   border: 1px solid var(--fv-line-strong);
   box-shadow: 0 -30px 90px -32px rgba(0,0,0,0.95);
 }
-.fv-pay-sheet-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px));
+.fv-pay-sheet--full {
+  max-height: min(calc(var(--tg-vh, 100dvh) - var(--tg-top, 14px) - 4px), 98dvh);
+  min-height: min(72dvh, calc(var(--tg-vh, 100dvh) * 0.88));
 }
 .fv-sheet-handle {
   width: 44px;
@@ -5095,47 +5091,6 @@ body.pay-sheet-open,
   display: flex; flex-direction: column;
   padding: 14px;
   gap: 12px;
-}
-.dpz-pay--in-sheet {
-  padding: 0;
-  gap: 0;
-  max-height: min(78dvh, calc(var(--tg-vh, 100dvh) - 100px));
-}
-.dpz-pay--in-sheet .dpz-pay-stage {
-  min-height: 0;
-  padding: 12px 10px 10px;
-}
-.dpz-pay--in-sheet .dpz-pay-qr {
-  width: 156px;
-  height: 156px;
-  padding: 10px;
-}
-.dpz-pay--in-sheet .dpz-pay-qr-img,
-.dpz-pay--in-sheet .dpz-pay-qr svg {
-  width: 136px;
-  height: 136px;
-}
-.dpz-pay-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.dpz-pay-footer {
-  flex-shrink: 0;
-  padding: 10px 14px max(calc(12px + env(safe-area-inset-bottom, 0px)), var(--tg-bottom, 0px) + 12px);
-  background: linear-gradient(180deg, transparent, var(--fv-panel) 24%);
-  border-top: 1px solid rgba(255,255,255,0.08);
-}
-.dpz-pay--plain {
-  padding: 14px;
-  gap: 12px;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.006)),
     #101114;
@@ -5221,10 +5176,12 @@ body.pay-sheet-open,
 
 .dpz-pay-stage {
   position: relative;
-  min-height: 316px;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  justify-items: center;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   padding: 16px 12px 14px;
   border-radius: 24px;
   background:
@@ -5288,8 +5245,8 @@ body.pay-sheet-open,
 }
 
 .dpz-pay-qr {
-  align-self: end;
   position: relative;
+  flex-shrink: 0;
   width: 190px; height: 190px;
   display: grid; place-items: center;
   padding: 13px;
@@ -5509,6 +5466,11 @@ body.pay-sheet-open,
   font-size: 14px; font-weight: 850;
   cursor: pointer;
   transition: background 200ms, color 200ms, border-color 200ms, transform 140ms;
+  position: sticky;
+  bottom: max(6px, env(safe-area-inset-bottom, 0px));
+  z-index: 3;
+  margin-top: 4px;
+  flex-shrink: 0;
 }
 .dpz-cancel:active:not(:disabled) { transform: scale(0.99); }
 .dpz-cancel:hover:not(:disabled) {
@@ -5766,9 +5728,19 @@ body.pay-sheet-open,
 }
 
 /* embed PayPanel inside sheet — strip the page-shell */
+.fv-pay-overlay {
+  align-items: stretch;
+  padding-top: max(0px, var(--tg-top, 0px));
+}
+.fv-pay-overlay .fv-pay-sheet--full {
+  max-height: none;
+  height: calc(var(--tg-vh, 100dvh) - max(0px, var(--tg-top, 0px)));
+  min-height: 0;
+  border-radius: 20px 20px 0 0;
+  margin-top: auto;
+}
 .dpz--inline {
   position: relative;
-  min-height: 0;
   padding: 0;
   background: transparent;
   overflow: visible;

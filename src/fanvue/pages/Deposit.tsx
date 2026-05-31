@@ -460,7 +460,6 @@ export default function Deposit() {
                 lang={lang}
                 onCancel={() => { cancelDeposit(); navigate('/profile') }}
                 onSuccess={handleSuccess}
-                layout="plain"
               />
             </motion.section>
           )}
@@ -611,7 +610,7 @@ const TOTAL_SECONDS = CONFIG.paymentTimeoutMinutes * 60
 export function PayPanel({
   orderId, amountUsd, uniqueAmount, createdAt, expiresAt, network,
   cryptoName, cryptoSymbol, cryptoColor, cryptoAddressFallback,
-  lang, onCancel, onSuccess, layout = 'sheet',
+  lang, onCancel, onSuccess,
 }: {
   orderId: string
   amountUsd: number
@@ -626,8 +625,6 @@ export function PayPanel({
   lang: 'ru' | 'en'
   onCancel: () => void
   onSuccess: () => void
-  /** sheet = sticky cancel for bottom sheets; plain = full deposit page */
-  layout?: 'sheet' | 'plain'
 }) {
   const { haptic } = useTelegram()
   const toast = useToast()
@@ -755,10 +752,8 @@ export function PayPanel({
   const isPaid = status === 'paid' || status === 'completed'
   const visibleAddress = liveAddress || (lang === 'ru' ? 'Адрес не настроен' : 'Address not configured')
 
-  const rootClass = layout === 'plain' ? 'dpz-pay dpz-pay--plain' : 'dpz-pay dpz-pay--in-sheet'
-
-  const body = (
-    <>
+  return (
+    <div className="dpz-pay" style={{ ['--accent' as never]: cryptoColor }}>
       <div className={`dpz-pay-pulse${lowTime ? ' is-low' : ''}`} aria-hidden>
         <motion.div
           className="dpz-pay-pulse-bar"
@@ -898,32 +893,13 @@ export function PayPanel({
         </span>
       </div>
 
-    </>
-  )
-
-  const cancelBtn = (
-    <button
-      className="dpz-cancel"
-      onClick={onCancel}
-      disabled={status === 'completed' || status === 'paid'}
-    >
-      {lang === 'ru' ? 'Отменить платёж' : 'Cancel payment'}
-    </button>
-  )
-
-  return (
-    <div className={rootClass} style={{ ['--accent' as never]: cryptoColor }}>
-      {layout === 'plain' ? (
-        <>
-          {body}
-          {cancelBtn}
-        </>
-      ) : (
-        <>
-          <div className="dpz-pay-scroll">{body}</div>
-          <div className="dpz-pay-footer">{cancelBtn}</div>
-        </>
-      )}
+      <button
+        className="dpz-cancel"
+        onClick={onCancel}
+        disabled={status === 'completed' || status === 'paid'}
+      >
+        {lang === 'ru' ? 'Отменить платёж' : 'Cancel payment'}
+      </button>
     </div>
   )
 }

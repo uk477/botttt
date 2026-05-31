@@ -619,7 +619,7 @@ export default function ProductDetail() {
             }}
           >
             <motion.div
-              className="fv-pay-sheet"
+              className={`fv-pay-sheet${payStep === 'crypto_pay' ? ' fv-pay-sheet--full' : ''}`}
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
@@ -638,7 +638,6 @@ export default function ProductDetail() {
                 }}
               />
 
-              <div className="fv-pay-sheet-scroll">
               {payStep === 'select' && (
                 <motion.div
                   className="fv-pay-select"
@@ -960,7 +959,6 @@ export default function ProductDetail() {
                   </div>
                 )
               })()}
-              </div>
             </motion.div>
           </motion.div>
         </AnimatePresence>,

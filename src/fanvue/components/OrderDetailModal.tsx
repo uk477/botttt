@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
@@ -11,7 +11,6 @@ import CryptoLogo from './CryptoLogo'
 import DeliveryBlock, { ManualDeliveryBlock } from './DeliveryBlock'
 import { isPendingCryptoInvoice, isPaymentWindowOpen } from '../utils/pendingOrder'
 import { resolveOrderProductId } from '../utils/orderResume'
-import { PayPanel } from '../pages/Deposit'
 import type { Order, CryptoNetwork } from '../store/types'
 
 interface Props {
@@ -19,6 +18,8 @@ interface Props {
   onClose: () => void
   /** Where «Перейти к оплате» should return on back (e.g. /orders) */
   returnTo?: string
+  /** Buy order without product_id — open fullscreen pay instead of inline */
+  onOpenFullscreenPay?: (order: Order) => void
 }
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
@@ -59,7 +60,7 @@ function formatTimeFull(iso: string) {
   return `${hh}:${mm}:${ss}`
 }
 
-export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
+export default function OrderDetailModal({ order, onClose, returnTo, onOpenFullscreenPay }: Props) {
   const t = useT()
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
@@ -67,11 +68,6 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
   const toast = useToast()
-  const [showInlinePay, setShowInlinePay] = useState(false)
-
-  useEffect(() => {
-    setShowInlinePay(false)
-  }, [order?.id])
 
   useEffect(() => {
     if (!order) return
@@ -324,50 +320,7 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                 createdAt={order.created}
               />
             )}
-            {order.status === 'pending' && isPendingCryptoInvoice(order) && showInlinePay && cryptoOpt && !isDeposit && (
-              <div style={{ marginBottom: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowInlinePay(false)}
-                  style={{
-                    marginBottom: 10, background: 'transparent', border: 'none',
-                    color: 'rgba(255,255,255,0.55)', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  ← {lang === 'ru' ? 'Назад к счёту' : 'Back to invoice'}
-                </button>
-                <PayPanel
-                  layout="sheet"
-                  orderId={order.id}
-                  amountUsd={order.amount}
-                  uniqueAmount={order.amount}
-                  createdAt={order.created}
-                  expiresAt={order.expires_at}
-                  network={cryptoOpt.id}
-                  cryptoName={cryptoOpt.name}
-                  cryptoSymbol={cryptoOpt.symbol}
-                  cryptoColor={cryptoOpt.color}
-                  cryptoAddressFallback={cryptoOpt.address}
-                  lang={lang === 'ru' ? 'ru' : 'en'}
-                  onCancel={() => {
-                    void (async () => {
-                      if (api.isEnabled()) await api.cancelOrder(order.id)
-                      setOrderStatus(order.id, 'expired')
-                      haptic('light')
-                      toast.show(lang === 'ru' ? 'Счёт отменён' : 'Invoice cancelled', 'success')
-                      setShowInlinePay(false)
-                      onClose()
-                    })()
-                  }}
-                  onSuccess={() => {
-                    setOrderStatus(order.id, 'paid')
-                    setShowInlinePay(false)
-                    onClose()
-                  }}
-                />
-              </div>
-            )}
-            {order.status === 'pending' && isPendingCryptoInvoice(order) && !showInlinePay && (
+            {order.status === 'pending' && isPendingCryptoInvoice(order) && (
               <div style={{
                 background: 'rgba(255,210,74,0.08)',
                 border: '1px solid rgba(255,210,74,0.25)',
@@ -409,8 +362,9 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                       })
                       return
                     }
-                    if (cryptoOpt) {
-                      setShowInlinePay(true)
+                    if (cryptoOpt && onOpenFullscreenPay) {
+                      onOpenFullscreenPay(order)
+                      onClose()
                       return
                     }
                     toast.show(

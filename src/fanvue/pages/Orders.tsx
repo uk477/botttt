@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import OrderDetailModal from '../components/OrderDetailModal'
+import OrderPayOverlay from '../components/OrderPayOverlay'
 
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import type { Order, OrderStatus, CryptoNetwork } from '../store/types'
@@ -45,6 +46,7 @@ export default function Orders() {
 
   const [filter, setFilter] = useState<Filter>('all')
   const [openOrder, setOpenOrder] = useState<Order | null>(null)
+  const [payOverlayOrder, setPayOverlayOrder] = useState<Order | null>(null)
 
   useEffect(() => {
     const cleanup = showBackButton(() => {
@@ -416,7 +418,9 @@ export default function Orders() {
         order={openOrder}
         onClose={() => setOpenOrder(null)}
         returnTo="/orders"
+        onOpenFullscreenPay={setPayOverlayOrder}
       />
+      <OrderPayOverlay order={payOverlayOrder} onClose={() => setPayOverlayOrder(null)} />
     </PageTransition>
   )
 }
