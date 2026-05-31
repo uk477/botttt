@@ -222,6 +222,8 @@ interface AppStore {
   logDailyRef: (date: string, count?: number) => void
   cancelPendingDeposits: () => Promise<void>
   cancelPendingBuyOrders: () => Promise<void>
+  /** Отменить все pending счета: пополнение + покупка криптой (один активный). */
+  cancelAllPendingCrypto: () => Promise<void>
 
   // Admin actions
   setCryptoAddress: (network: CryptoNetwork, address: string) => void
@@ -836,6 +838,26 @@ export const useStore = create<AppStore>()(
             o.provider !== 'balance'
               ? { ...o, status: 'expired' as const }
               : o
+          ),
+          notifications: s.notifications.filter(
+            (n) => !pending.some((o) => o.id === n.orderId),
+          ),
+        }))
+      },
+
+      cancelAllPendingCrypto: async () => {
+        const pending = get().orders.filter(
+          (o) =>
+            o.status === 'pending' &&
+            (o.kind === 'deposit' ||
+              (o.kind === 'buy' && o.provider && o.provider !== 'balance')),
+        )
+        if (api.isEnabled()) {
+          await Promise.all(pending.map((o) => api.cancelOrder(o.id)))
+        }
+        set((s) => ({
+          orders: s.orders.map((o) =>
+            pending.some((p) => p.id === o.id) ? { ...o, status: 'expired' as const } : o,
           ),
           notifications: s.notifications.filter(
             (n) => !pending.some((o) => o.id === n.orderId),

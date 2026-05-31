@@ -67,7 +67,7 @@ export default function Deposit() {
   const addOrder = useStore((s) => s.addOrder)
   const addNotification = useStore((s) => s.addNotification)
   const creditDeposit = useStore((s) => s.creditDeposit)
-  const cancelPendingDeposits = useStore((s) => s.cancelPendingDeposits)
+  const cancelAllPendingCrypto = useStore((s) => s.cancelAllPendingCrypto)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const [creating, setCreating] = useState(false)
 
@@ -122,7 +122,7 @@ export default function Deposit() {
   const cancelDeposit = async () => {
     if (!pendingOrder) return
     if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
-    setOrderStatus(pendingOrder.id, 'failed')
+    setOrderStatus(pendingOrder.id, 'expired')
     removeNotification(pendingOrder.id)
     setPendingOrder(null)
     void refreshUser()
@@ -159,7 +159,7 @@ export default function Deposit() {
     setCreating(true)
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
-    await cancelPendingDeposits()
+    await cancelAllPendingCrypto()
     const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
     if (api.isEnabled() && !result.ok) {
       rateLimitUndo('deposit')

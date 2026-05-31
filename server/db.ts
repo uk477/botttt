@@ -329,11 +329,11 @@ export const orders = {
   expire(id: string) {
     stmts.updateStatus.run({ id, status: "expired" });
   },
-  /** Cancel all pending crypto purchases for a user (before creating a new invoice). */
-  expirePendingBuysForUid(uid: number): string[] {
+  /** Cancel all pending crypto invoices (deposit + buy) — only one active счёт per user. */
+  expireAllPendingCryptoForUid(uid: number): string[] {
     const rows = db
       .prepare(
-        `SELECT id FROM orders WHERE uid = ? AND kind = 'buy' AND status = 'pending'`,
+        `SELECT id FROM orders WHERE uid = ? AND status = 'pending' AND kind IN ('buy', 'deposit')`,
       )
       .all(uid) as { id: string }[];
     for (const row of rows) {

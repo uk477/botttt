@@ -49,7 +49,7 @@ export default function ProductDetail() {
   const tryAutoFulfill = useStore((s) => s.tryAutoFulfill)
   const addRealSale = useStore((s) => s.addRealSale)
   const refreshUser = useStore((s) => s.refreshUser)
-  const cancelPendingBuyOrders = useStore((s) => s.cancelPendingBuyOrders)
+  const cancelAllPendingCrypto = useStore((s) => s.cancelAllPendingCrypto)
 
   const product = products.find((p) => p.id === Number(id))
   const [qty, setQty] = useState(1)
@@ -98,14 +98,13 @@ export default function ProductDetail() {
   const hasEnoughBalance = balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
 
-  const latestPendingBuy = useMemo(() => {
+  const latestPendingCrypto = useMemo(() => {
     const pending = orders
       .filter(
         (o) =>
-          o.kind === 'buy' &&
           o.status === 'pending' &&
-          o.provider &&
-          o.provider !== 'balance',
+          (o.kind === 'deposit' ||
+            (o.kind === 'buy' && o.provider && o.provider !== 'balance')),
       )
       .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
     return pending[0] ?? null
@@ -240,7 +239,7 @@ export default function ProductDetail() {
     purchaseLock.current = true
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
-    await cancelPendingBuyOrders()
+    await cancelAllPendingCrypto()
     const result = await createOrder({
       uid: user.uid,
       kind: 'buy',
@@ -630,7 +629,7 @@ export default function ProductDetail() {
                     className="fv-pay-card fv-pay-card--crypto"
                     onClick={() => {
                       haptic('light')
-                      setPayStep(latestPendingBuy ? 'pending_gate' : 'crypto_net')
+                      setPayStep(latestPendingCrypto ? 'pending_gate' : 'crypto_net')
                     }}
                     initial={false}
                     animate={{ opacity: 1, y: 0 }}
@@ -664,7 +663,7 @@ export default function ProductDetail() {
                 </motion.div>
               )}
 
-              {payStep === 'pending_gate' && latestPendingBuy && (
+              {payStep === 'pending_gate' && latestPendingCrypto && (
                 <motion.div
                   initial={false}
                   animate={{ opacity: 1, y: 0 }}
@@ -675,12 +674,16 @@ export default function ProductDetail() {
                     <button type="button" onClick={() => setPayStep('select')} aria-label="Back">
                       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                     </button>
-                    <h2>{lang === 'ru' ? 'Неоплаченный счёт' : 'Unpaid invoice'}</h2>
+                    <h2>{lang === 'ru' ? 'Уже есть счёт' : 'Invoice already open'}</h2>
                   </div>
                   <p className="fv-pay-sub" style={{ marginBottom: 16 }}>
                     {lang === 'ru'
-                      ? 'У вас уже есть ожидающая оплата. Продолжите её, отмените и создайте новую, или закройте окно — счёт останется в истории заказов.'
-                      : 'You already have a pending payment. Continue it, cancel and create a new one, or close — the invoice stays in order history.'}
+                      ? latestPendingCrypto.kind === 'deposit'
+                        ? 'Сначала пополнение или отмените его — нельзя одновременно пополнять баланс и платить за лот.'
+                        : 'Сначала оплатите этот заказ или отмените счёт.'
+                      : latestPendingCrypto.kind === 'deposit'
+                        ? 'Finish or cancel the deposit first — balance top-up and lot payment cannot run together.'
+                        : 'Pay this order first, or cancel and create a new invoice.'}
                   </p>
                   <div
                     style={{
@@ -695,31 +698,47 @@ export default function ProductDetail() {
                     }}
                   >
                     <div>
-                      {latestPendingBuy.product_title ?? (lang === 'ru' ? 'Заказ' : 'Order')}
+                      {latestPendingCrypto.kind === 'deposit'
+                        ? (lang === 'ru' ? 'Пополнение баланса' : 'Balance top-up')
+                        : (latestPendingCrypto.product_title ?? (lang === 'ru' ? 'Покупка' : 'Purchase'))}
                     </div>
                     <div style={{ color: 'rgba(255,255,255,0.55)' }}>
-                      ${latestPendingBuy.amount.toFixed(2)} · {latestPendingBuy.provider?.toUpperCase()}
+                      ${latestPendingCrypto.amount.toFixed(2)} · {latestPendingCrypto.provider?.toUpperCase()}
                     </div>
                     <div style={{ color: 'rgba(255,255,255,0.45)' }}>
-                      #{latestPendingBuy.id.split('-').pop() ?? latestPendingBuy.id.slice(-8)}
+                      #{latestPendingCrypto.id.split('-').pop() ?? latestPendingCrypto.id.slice(-8)}
+                    </div>
+                    <div style={{ color: '#ffd24a', marginTop: 6 }}>
+                      {lang === 'ru' ? 'Оплатил: НЕТ' : 'Paid: NO'}
                     </div>
                   </div>
                   <motion.button
                     className="dpz-cta fv-full"
                     type="button"
-                    onClick={() => resumePendingBuy(latestPendingBuy)}
+                    onClick={() => {
+                      if (latestPendingCrypto.kind === 'deposit') {
+                        navigate('/deposit')
+                        setShowPayment(false)
+                      } else {
+                        resumePendingBuy(latestPendingCrypto)
+                      }
+                    }}
                     whileTap={{ scale: 0.98 }}
                     style={{ marginBottom: 10 }}
                   >
                     <span className="dpz-cta-bg" aria-hidden />
-                    <span className="dpz-cta-t">{lang === 'ru' ? 'Продолжить оплату' : 'Continue payment'}</span>
+                    <span className="dpz-cta-t">
+                      {latestPendingCrypto.kind === 'deposit'
+                        ? (lang === 'ru' ? 'К пополнению' : 'Go to top-up')
+                        : (lang === 'ru' ? 'Продолжить оплату' : 'Continue payment')}
+                    </span>
                   </motion.button>
                   <motion.button
                     className="dpz-cta fv-full"
                     type="button"
                     onClick={() => {
                       void (async () => {
-                        await cancelPendingBuyOrders()
+                        await cancelAllPendingCrypto()
                         setPendingOrder(null)
                         setSelectedNet(null)
                         setPayStep('crypto_net')
@@ -728,7 +747,7 @@ export default function ProductDetail() {
                     whileTap={{ scale: 0.98 }}
                     style={{ marginBottom: 10, opacity: 0.92 }}
                   >
-                    <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить и выбрать сеть' : 'Cancel & pick network'}</span>
+                    <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить всё и новый счёт' : 'Cancel all & new invoice'}</span>
                   </motion.button>
                   <button
                     type="button"
