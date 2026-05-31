@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
@@ -6,7 +6,7 @@ import OrderDetailModal from '../components/OrderDetailModal'
 
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import type { Order, OrderStatus, CryptoNetwork } from '../store/types'
-import { resolveOrderProductId } from '../utils/orderResume'
+import { useTelegram } from '../hooks/useTelegram'
 import CryptoLogo from '../components/CryptoLogo'
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
@@ -41,10 +41,21 @@ export default function Orders() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
   const allOrders = useStore((s) => s.orders)
-  const products = useStore((s) => s.products)
-  
+  const { showBackButton } = useTelegram()
+
   const [filter, setFilter] = useState<Filter>('all')
   const [openOrder, setOpenOrder] = useState<Order | null>(null)
+
+  useEffect(() => {
+    const cleanup = showBackButton(() => {
+      if (openOrder) {
+        setOpenOrder(null)
+        return
+      }
+      navigate(-1)
+    })
+    return cleanup
+  }, [openOrder, navigate, showBackButton])
 
   // include all buy orders in any status
   const orders = useMemo(
@@ -285,20 +296,7 @@ export default function Orders() {
                         return (
                           <motion.button
                             key={o.id}
-                            onClick={() => {
-                              if (o.status === 'pending') {
-                                const productId = resolveOrderProductId(o, products)
-                                if (productId) {
-                                  navigate(`/product/${productId}`, {
-                                    state: { resumeCryptoPay: true, resumeOrderId: o.id },
-                                  })
-                                } else {
-                                  setOpenOrder(o)
-                                }
-                              } else {
-                                setOpenOrder(o)
-                              }
-                            }}
+                            onClick={() => setOpenOrder(o)}
                             variants={{
                               hidden: { opacity: 0, y: 8 },
                               show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } },
@@ -411,7 +409,11 @@ export default function Orders() {
         </AnimatePresence>
       </div>
 
-      <OrderDetailModal order={openOrder} onClose={() => setOpenOrder(null)} />
+      <OrderDetailModal
+        order={openOrder}
+        onClose={() => setOpenOrder(null)}
+        returnTo="/orders"
+      />
     </PageTransition>
   )
 }

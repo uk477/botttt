@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
@@ -6,6 +6,7 @@ import OrderDetailModal from '../components/OrderDetailModal'
 
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import type { Order, CryptoNetwork } from '../store/types'
+import { useTelegram } from '../hooks/useTelegram'
 import CryptoLogo from '../components/CryptoLogo'
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
@@ -56,8 +57,20 @@ export default function Deposits() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
   const allOrders = useStore((s) => s.orders)
+  const { showBackButton } = useTelegram()
   const [filter, setFilter] = useState<DepositFilter>('all')
   const [openOrder, setOpenOrder] = useState<Order | null>(null)
+
+  useEffect(() => {
+    const cleanup = showBackButton(() => {
+      if (openOrder) {
+        setOpenOrder(null)
+        return
+      }
+      navigate(-1)
+    })
+    return cleanup
+  }, [openOrder, navigate, showBackButton])
 
   const deposits = useMemo(
     () => allOrders.filter((o) => o.kind === 'deposit'),
@@ -295,7 +308,9 @@ export default function Deposits() {
                               key={o.id}
                               onClick={() => {
                                 if (o.status === 'pending') {
-                                  navigate('/deposit', { state: { resumeOrderId: o.id } })
+                                  navigate('/deposit', {
+                                    state: { resumeOrderId: o.id, returnTo: '/deposits' },
+                                  })
                                 } else {
                                   setOpenOrder(o)
                                 }
@@ -421,7 +436,11 @@ export default function Deposits() {
         `}</style>
       </div>
 
-      <OrderDetailModal order={openOrder} onClose={() => setOpenOrder(null)} />
+      <OrderDetailModal
+        order={openOrder}
+        onClose={() => setOpenOrder(null)}
+        returnTo="/deposits"
+      />
     </PageTransition>
   )
 }

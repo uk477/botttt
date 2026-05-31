@@ -116,12 +116,16 @@ export default function Deposit() {
     void reconcilePendingOrders()
   }, [reconcilePendingOrders])
 
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
+
   useEffect(() => {
-    const resumeId = (location.state as { resumeOrderId?: string } | null)?.resumeOrderId
+    const st = location.state as { resumeOrderId?: string; returnTo?: string } | null
+    const resumeId = st?.resumeOrderId
     if (resumeId) {
       const o = orders.find((x) => x.id === resumeId && x.kind === 'deposit' && x.status === 'pending')
       if (o) resumeDeposit(o)
-      navigate(location.pathname, { replace: true, state: {} })
+      const keep = st?.returnTo ? { returnTo: st.returnTo } : {}
+      navigate(location.pathname, { replace: true, state: keep })
       return
     }
     if (blockingBuy) return
@@ -243,10 +247,22 @@ export default function Deposit() {
   }
 
   const goBack = () => {
-    if (step === 'amount') navigate(-1)
-    else if (step === 'pay') navigate('/profile') // keep order pending — only "Cancel" button or 30-min timer cancels it
-    else if (step === 'success') navigate('/profile')
-    else setStep('amount')
+    if (step === 'amount') {
+      if (returnTo) navigate(returnTo, { replace: true })
+      else navigate(-1)
+      return
+    }
+    if (step === 'pay') {
+      if (returnTo) navigate(returnTo, { replace: true })
+      else navigate('/profile')
+      return
+    }
+    if (step === 'success') {
+      if (returnTo) navigate(returnTo, { replace: true })
+      else navigate('/profile')
+      return
+    }
+    setStep('amount')
   }
 
   const stepIndex = step === 'amount' ? 0 : step === 'network' ? 1 : 2

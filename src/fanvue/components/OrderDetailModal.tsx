@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useT } from '../i18n'
@@ -11,7 +13,12 @@ import { isPendingCryptoInvoice, isPaymentWindowOpen } from '../utils/pendingOrd
 import { resolveOrderProductId } from '../utils/orderResume'
 import type { Order, CryptoNetwork } from '../store/types'
 
-interface Props { order: Order | null; onClose: () => void }
+interface Props {
+  order: Order | null
+  onClose: () => void
+  /** Where «Перейти к оплате» should return on back (e.g. /orders) */
+  returnTo?: string
+}
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
 const MONO = "'JetBrains Mono', ui-monospace, monospace"
@@ -51,7 +58,7 @@ function formatTimeFull(iso: string) {
   return `${hh}:${mm}:${ss}`
 }
 
-export default function OrderDetailModal({ order, onClose }: Props) {
+export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
   const t = useT()
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
@@ -59,6 +66,17 @@ export default function OrderDetailModal({ order, onClose }: Props) {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
   const toast = useToast()
+
+  useEffect(() => {
+    if (!order) return
+    document.body.classList.add('order-sheet-open')
+    const scroll = document.querySelector('.scroll-area')
+    scroll?.classList.add('order-sheet-open')
+    return () => {
+      document.body.classList.remove('order-sheet-open')
+      scroll?.classList.remove('order-sheet-open')
+    }
+  }, [order])
 
   if (!order) return null
 
@@ -126,33 +144,24 @@ export default function OrderDetailModal({ order, onClose }: Props) {
   const refLabel = `${lang === 'ru' ? 'СПРАВКА' : 'REFERENCE'} / ${String(isDeposit ? 2 : 1).padStart(2, '0')} / ${isDeposit ? 'DEPOSIT' : 'ORDER'}`
   const statusLabel = String(t(statusKey)).toUpperCase()
 
-  return (
+  const sheet = (
     <AnimatePresence>
       <motion.div
+        key="order-sheet-overlay"
+        className="order-sheet-overlay"
         initial={false}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(10px)',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-        }}
       >
         <motion.div
+          key="order-sheet-panel"
+          className="order-sheet-panel"
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-          style={{
-            width: '100%', maxWidth: 480, maxHeight: '94dvh', overflowY: 'auto',
-            background: INK,
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderBottom: 'none',
-            borderTopLeftRadius: 32, borderTopRightRadius: 32,
-            color: '#fff', fontFamily: DISPLAY,
-            position: 'relative',
-          }}
+          style={{ color: '#fff', fontFamily: DISPLAY }}
         >
           {/* Drag handle */}
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 8 }}>
@@ -331,13 +340,22 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                     haptic('medium')
                     onClose()
                     if (isDeposit) {
-                      navigate('/deposit', { state: { resumeOrderId: order.id } })
+                      navigate('/deposit', {
+                        state: {
+                          resumeOrderId: order.id,
+                          returnTo: returnTo ?? '/deposits',
+                        },
+                      })
                       return
                     }
                     const productId = resolveOrderProductId(order, products)
                     if (productId) {
                       navigate(`/product/${productId}`, {
-                        state: { resumeCryptoPay: true, resumeOrderId: order.id },
+                        state: {
+                          resumeCryptoPay: true,
+                          resumeOrderId: order.id,
+                          returnTo: returnTo ?? '/orders',
+                        },
                       })
                       return
                     }
@@ -616,6 +634,8 @@ export default function OrderDetailModal({ order, onClose }: Props) {
       </motion.div>
     </AnimatePresence>
   )
+
+  return createPortal(sheet, document.body)
 }
 
 function SpecCell({

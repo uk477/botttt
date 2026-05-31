@@ -143,8 +143,14 @@ export default function ProductDetail() {
     }
   }, [orders, pendingOrder, payStep])
 
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
+
   useEffect(() => {
-    const st = location.state as { resumeCryptoPay?: boolean; resumeOrderId?: string } | null
+    const st = location.state as {
+      resumeCryptoPay?: boolean
+      resumeOrderId?: string
+      returnTo?: string
+    } | null
     if (!st?.resumeCryptoPay || !product) return
     let pending =
       findResumablePendingOrder(orders, st.resumeOrderId) ??
@@ -159,7 +165,8 @@ export default function ProductDetail() {
       setShowPayment(true)
       resumePendingBuy(pending)
     }
-    navigate(location.pathname, { replace: true, state: {} })
+    const keepReturn = st.returnTo ? { returnTo: st.returnTo } : {}
+    navigate(location.pathname, { replace: true, state: keepReturn })
   }, [location.state, product?.id, orders, products, location.pathname, navigate])
 
   const similar = products
@@ -345,7 +352,8 @@ export default function ProductDetail() {
             type="button"
             onClick={() => {
               haptic('light')
-              navigate('/')
+              if (returnTo) navigate(returnTo, { replace: true })
+              else navigate('/')
             }}
             aria-label="Back"
             initial={false}
@@ -719,7 +727,9 @@ export default function ProductDetail() {
                     context="product"
                     onContinue={() => {
                       if (latestPendingCrypto.kind === 'deposit') {
-                        navigate('/deposit', { state: { resumeOrderId: latestPendingCrypto.id } })
+                        navigate('/deposit', {
+                          state: { resumeOrderId: latestPendingCrypto.id, returnTo: `/product/${product.id}` },
+                        })
                         setShowPayment(false)
                       } else {
                         resumePendingBuy(latestPendingCrypto)

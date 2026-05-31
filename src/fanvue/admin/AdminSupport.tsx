@@ -34,15 +34,43 @@ const C = {
 }
 const MONO = 'ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace'
 
+type UserChatLang = 'ru' | 'en'
+
+interface SupportUserMeta {
+  lang: UserChatLang
+  username?: string
+  full_name?: string
+}
+
 interface ChatGroup {
   uid: number
   username: string
   full_name: string
   photo_url?: string
+  userLang: UserChatLang
   messages: SupportMessage[]
   last: SupportMessage
   unread: number
   activeTicket?: SupportTicket
+}
+
+function LangFlag({ userLang, size = 16 }: { userLang: UserChatLang; size?: number }) {
+  const isRu = userLang === 'ru'
+  return (
+    <span
+      title={isRu ? 'Русский' : 'English'}
+      aria-label={isRu ? 'RU' : 'EN'}
+      style={{
+        fontSize: size,
+        lineHeight: 1,
+        flexShrink: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+      }}
+    >
+      {isRu ? '🇷🇺' : '🇬🇧'}
+    </span>
+  )
 }
 
 const fmtTime = (iso: string) =>
@@ -91,6 +119,7 @@ export default function AdminSupport() {
   const [confirmClose, setConfirmClose] = useState(false)
   const [balanceInput, setBalanceInput] = useState('')
   const [balanceSent, setBalanceSent] = useState(false)
+  const [supportUsers, setSupportUsers] = useState<Record<number, SupportUserMeta>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -112,6 +141,11 @@ export default function AdminSupport() {
     [openUid, tickets, messages],
   )
 
+  const metaForUid = (uid: number): SupportUserMeta => {
+    const m = supportUsers[uid]
+    return m ?? { lang: 'ru' }
+  }
+
   const groups: ChatGroup[] = useMemo(() => {
     const byUid = new Map<number, SupportMessageWithUid[]>()
     for (const m of messages) {
@@ -122,8 +156,13 @@ export default function AdminSupport() {
       byUid.set(uid, arr)
     }
     if (byUid.size === 0 && messages.length > 0 && lastMsg) {
+      const meta = metaForUid(realUid)
       return [{
-        uid: realUid, username: realName, full_name: realFull, photo_url: realPhoto,
+        uid: realUid,
+        username: meta.username || realName || `user_${realUid}`,
+        full_name: meta.full_name || realFull,
+        photo_url: realPhoto,
+        userLang: meta.lang,
         messages, last: lastMsg, unread: unreadCount, activeTicket,
       }]
     }
@@ -131,24 +170,30 @@ export default function AdminSupport() {
       const vis = msgs.filter((m) => m.kind !== 'system' || m.text.startsWith('ticket_'))
       const last = vis[vis.length - 1] ?? msgs[msgs.length - 1]
       const unread = msgs.filter((m) => m.sender === 'user' && !m.read_by_admin).length
+      const meta = metaForUid(uid)
       return {
         uid,
-        username: uid === realUid ? realName : `user_${uid}`,
-        full_name: uid === realUid ? realFull : `User ${uid}`,
+        username: meta.username || (uid === realUid ? realName : '') || `user_${uid}`,
+        full_name: meta.full_name || (uid === realUid ? realFull : '') || `User ${uid}`,
         photo_url: uid === realUid ? realPhoto : undefined,
+        userLang: meta.lang,
         messages: msgs,
         last,
         unread,
         activeTicket: resolveActiveTicketForUid(uid, tickets, messages),
       }
     }).sort((a, b) => new Date(b.last.created).getTime() - new Date(a.last.created).getTime())
-  }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, lastMsg])
+  }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, lastMsg, supportUsers])
 
   useEffect(() => {
     if (!api.isEnabled()) return
     api.adminSupport().then((res) => {
       if (!res || typeof res !== 'object') return
-      const data = res as { messages?: Array<Record<string, unknown>>; tickets?: SupportTicket[] }
+      const data = res as {
+        messages?: Array<Record<string, unknown>>
+        tickets?: SupportTicket[]
+        users?: Record<string, SupportUserMeta>
+      }
       if (Array.isArray(data.messages) && data.messages.length > 0) {
         const mapped: SupportMessageWithUid[] = data.messages.map((m) => ({
           id: Number(m.id),
@@ -165,6 +210,20 @@ export default function AdminSupport() {
       }
       if (Array.isArray(data.tickets)) {
         useStore.setState({ supportTickets: data.tickets })
+      }
+      if (data.users && typeof data.users === 'object') {
+        const map: Record<number, SupportUserMeta> = {}
+        for (const [k, v] of Object.entries(data.users)) {
+          const uid = Number(k)
+          if (!uid || !v || typeof v !== 'object') continue
+          const lang = v.lang === 'en' ? 'en' : 'ru'
+          map[uid] = {
+            lang,
+            username: typeof v.username === 'string' ? v.username : undefined,
+            full_name: typeof v.full_name === 'string' ? v.full_name : undefined,
+          }
+        }
+        setSupportUsers(map)
       }
     })
   }, [])
@@ -283,7 +342,7 @@ export default function AdminSupport() {
       created: new Date().toISOString(), reply_to: replyTo?.id, ticket_id: activeTicket?.id,
     })
     if (api.isEnabled() && targetUid) {
-      api.adminReply(targetUid, trimmed, lang)
+      api.adminReply(targetUid, trimmed, chatUser?.userLang ?? 'ru')
     }
     setReply(''); setReplyTo(null)
   }
@@ -430,8 +489,11 @@ export default function AdminSupport() {
                       <Avatar size={44} photo={g.photo_url} name={g.full_name} ring={g.unread > 0} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {g.full_name}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                            <LangFlag userLang={g.userLang} size={15} />
+                            <div style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {g.full_name}
+                            </div>
                           </div>
                           <div style={{ fontSize: 10.5, color: C.muted, fontFamily: MONO, flexShrink: 0, marginLeft: 8 }}>
                             {fmtTime(g.last.created)}
@@ -484,13 +546,21 @@ export default function AdminSupport() {
                   style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent' }}>
                   <Avatar size={36} photo={chatUser.photo_url} name={chatUser.full_name} ring={presence.online} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {chatUser.full_name}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <LangFlag userLang={chatUser.userLang} size={16} />
+                      <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {chatUser.full_name}
+                      </div>
                     </div>
                     <div style={{ fontSize: 10.5, color: userTyping ? C.brand : C.muted, fontFamily: MONO, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {userTyping
                         ? (lang === 'ru' ? '● печатает…' : '● typing…')
                         : (chatUser.username ? '@' + chatUser.username : 'ID ' + chatUser.uid)}
+                      {!userTyping && (
+                        <span style={{ marginLeft: 6, opacity: 0.85 }}>
+                          · {chatUser.userLang === 'ru' ? 'RU' : 'EN'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </button>
@@ -841,11 +911,15 @@ export default function AdminSupport() {
                 <div className="adm-sheet-handle" />
 
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 18 }}>
-                  <Avatar size={56} photo={realPhoto} name={realFull} ring={presence.online} />
+                  <Avatar size={56} photo={chatUser.photo_url} name={chatUser.full_name} ring={presence.online} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.01em' }}>{realFull}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <LangFlag userLang={chatUser.userLang} size={18} />
+                      <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.01em' }}>{chatUser.full_name}</div>
+                    </div>
                     <div style={{ fontSize: 11.5, color: C.muted, fontFamily: MONO, marginTop: 2 }}>
-                      {realName ? '@' + realName + ' · ' : ''}ID {realUid}
+                      {chatUser.username ? '@' + chatUser.username + ' · ' : ''}ID {chatUser.uid}
+                      {' · '}{chatUser.userLang === 'ru' ? (lang === 'ru' ? 'язык: русский' : 'language: Russian') : (lang === 'ru' ? 'язык: English' : 'language: English')}
                     </div>
                   </div>
                 </div>

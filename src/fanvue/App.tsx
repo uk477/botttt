@@ -108,13 +108,23 @@ function AppInner() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
-  // Wire Telegram native back button to history navigation
+  // Pages with overlays register their own back handler (/orders, /deposits)
+  const PAGE_OWNED_BACK = ['/orders', '/deposits']
+
   useEffect(() => {
     if (location.pathname === '/') return
-    const cleanup = showBackButton(() => navigate(-1))
+    if (PAGE_OWNED_BACK.includes(location.pathname)) return
+    const cleanup = showBackButton(() => {
+      const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
+      if (returnTo) {
+        navigate(returnTo, { replace: true })
+        return
+      }
+      navigate(-1)
+    })
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname])
+  }, [location.pathname, location.state])
 
   useEffect(() => {
     if (!isKnownRoute) navigate('/', { replace: true })

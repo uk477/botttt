@@ -11,6 +11,7 @@ import {
   adminSupportInbound,
   type NotifyLang,
 } from "../../shared/telegramTemplates.js";
+import { getUserNotifyLang } from "../userLang.js";
 import {
   orders,
   users,
@@ -450,7 +451,24 @@ router.get("/api/admin/support", (req: Request, res: Response) => {
     created_at: string;
     closed_at: string | null;
   }[];
-  const messages = support.getAllMessages();
+  const messages = support.getAllMessages() as { uid: number }[];
+  const uidSet = new Set<number>();
+  for (const tk of tickets) uidSet.add(tk.uid);
+  for (const m of messages) uidSet.add(m.uid);
+
+  const usersMeta: Record<
+    string,
+    { lang: NotifyLang; username?: string; full_name?: string }
+  > = {};
+  for (const uid of uidSet) {
+    const row = users.get(uid);
+    usersMeta[String(uid)] = {
+      lang: getUserNotifyLang(uid),
+      username: row?.username ?? undefined,
+      full_name: row?.full_name ?? undefined,
+    };
+  }
+
   res.json({
     tickets: tickets.map((tk) => ({
       id: tk.id,
@@ -462,6 +480,7 @@ router.get("/api/admin/support", (req: Request, res: Response) => {
       summary: tk.summary ?? undefined,
     })),
     messages,
+    users: usersMeta,
   });
 });
 
@@ -532,8 +551,7 @@ router.post("/api/admin/support/:uid", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid" }); return;
   }
   support.addMessage({ uid, sender: "admin", text });
-  const notifyLang: NotifyLang =
-    typeof req.body?.lang === "string" && req.body.lang === "en" ? "en" : "ru";
+  const notifyLang = getUserNotifyLang(uid);
   await notifyUserTemplated(uid, "support_reply", { preview: text }, notifyLang);
   res.json({ ok: true });
 });

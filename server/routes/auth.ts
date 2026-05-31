@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin } from "../telegram.js";
 import { users, settings } from "../db.js";
+import { persistUserLangIfMissing } from "../userLang.js";
 import { readMaintenanceFlag } from "../storeConfig.js";
 
 const router = Router();
@@ -29,9 +30,7 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
     full_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
   });
 
-  const storedLang = settings.get(`user_lang:${user.id}`);
-  const preferred_lang =
-    storedLang === "ru" || storedLang === "en" ? storedLang : null;
+  const preferred_lang = persistUserLangIfMissing(user.id, user.language_code);
 
   res.json({
     uid: user.id,

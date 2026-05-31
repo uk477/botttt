@@ -18,4 +18,9 @@ export function findResumablePendingOrder(orders: Order[], orderId?: string): Or
   return o ?? null
 }
 
-export type ResumePayState = { resumeCryptoPay?: boolean; resumeOrderId?: string }
+export type ResumePayState = {
+  resumeCryptoPay?: boolean
+  resumeOrderId?: string
+  /** After payment screen — explicit return (e.g. /orders), not history -1 */
+  returnTo?: string
+}
