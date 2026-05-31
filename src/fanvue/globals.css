@@ -7757,6 +7757,9 @@ body.pay-sheet-open,
   flex-direction: column;
   justify-content: flex-end;
   padding-top: max(var(--tg-top, 0px), env(safe-area-inset-top, 0px));
+  overflow: hidden;
+  touch-action: none;
+  -webkit-overflow-scrolling: auto;
 }
 .cinv-sheet {
   width: 100%;
@@ -7834,6 +7837,7 @@ body.pay-sheet-open,
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding: 16px 18px 16px;
 }
 .cinv__amount-card {
@@ -7942,6 +7946,8 @@ body.pay-sheet-open,
   padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   background: #0c0c0e;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .cinv__cancel {
   width: 100%;

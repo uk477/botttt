@@ -71,6 +71,18 @@ export default function SalesHistorySheet({ onClose, lang, productTitle }: Props
   const [visible, setVisible] = useState(true)
   const closingRef = useRef(false)
   const realSales = useStore((s) => s.realSales)
+  const orders = useStore((s) => s.orders)
+
+  const allRealSales = useMemo(() => {
+    const fromOrders = orders
+      .filter((o) => o.kind === 'buy' && (o.status === 'completed' || o.status === 'paid'))
+      .map((o) => ({
+        uid: 0,
+        productIndex: 0 as const,
+        ts: new Date(o.paid_at ?? o.created).getTime(),
+      }))
+    return [...realSales, ...fromOrders]
+  }, [realSales, orders])
 
   useEffect(() => {
     document.body.classList.add('sales-cal-open')
@@ -94,14 +106,14 @@ export default function SalesHistorySheet({ onClose, lang, productTitle }: Props
     const fakes = sameDay(selected, today)
       ? getSalesToday(today)
       : selected.getTime() > today.getTime() ? [] : generateSalesForDay(selected)
-    const reals = mergeRealSales(realSales, selected)
+    const reals = mergeRealSales(allRealSales, selected)
     return [...reals, ...fakes].sort((a, b) => a.ts - b.ts)
-  }, [selected, realSales, today])
+  }, [selected, allRealSales, today])
 
   const countForDay = (d: Date) => {
     if (isBeforeStats(d) || d.getTime() > today.getTime()) return 0
     const fakes = sameDay(d, today) ? getSalesToday(today).length : generateSalesForDay(d).length
-    return fakes + mergeRealSales(realSales, d).length
+    return fakes + mergeRealSales(allRealSales, d).length
   }
 
   const monthName = (lang === 'ru' ? MONTHS_RU : MONTHS_EN)[viewMonth.getMonth()]

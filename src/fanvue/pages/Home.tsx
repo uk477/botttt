@@ -78,7 +78,8 @@ export default function Home() {
       })
       .slice(0, 3)
   }, [now, realSales])
-  const totalSales = useMemo(() => getTotalSales(new Date(now)) + orders.length, [now, orders.length])
+  const completedCount = useMemo(() => orders.filter((o) => o.status === 'completed' || o.status === 'paid').length, [orders])
+  const totalSales = useMemo(() => getTotalSales(new Date(now)) + realSales.length + completedCount, [now, realSales.length, completedCount])
 
   // Animated count-up for total sales
   const [shownTotal, setShownTotal] = useState(0)
