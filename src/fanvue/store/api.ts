@@ -48,7 +48,11 @@ async function req<T>(
           await new Promise((res) => setTimeout(res, 500 * (attempt + 1)))
           continue
         }
-        return null
+        try {
+          return await r.json() as T
+        } catch {
+          return null
+        }
       }
 
       return await r.json() as T

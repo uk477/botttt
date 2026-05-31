@@ -227,7 +227,9 @@ export default function ProductDetail() {
         return
       }
       if (!res?.ok || !res.order) {
-        toast.show(lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase', 'error')
+        const errMsg = (res as Record<string, unknown> | null)?.error
+        const detail = typeof errMsg === 'string' ? `: ${errMsg}` : ''
+        toast.show((lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase') + detail, 'error')
         purchaseLock.current = false
         return
       }
