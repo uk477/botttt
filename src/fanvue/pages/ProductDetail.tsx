@@ -198,15 +198,43 @@ export default function ProductDetail() {
     : (lang === 'ru' ? '1–24 часа' : '1–24h')
 
 
+  const purchaseErrorText = (code: string | undefined) => {
+    if (!code) return ''
+    const ru: Record<string, string> = {
+      'Product not found': 'товар не найден на сервере — перезапустите сервер или добавьте лот в админке',
+      'Insufficient balance': 'на сервере недостаточно баланса (зачислите в админке → Пользователи)',
+      'Invalid amount': 'цена не совпадает — обновите страницу',
+      Unauthorized: 'сессия истекла — закройте и откройте мини-апп заново',
+      'Out of stock': 'нет в наличии',
+      maintenance: 'техработы',
+    }
+    const en: Record<string, string> = {
+      'Product not found': 'product missing on server',
+      'Insufficient balance': 'insufficient server balance',
+      'Invalid amount': 'price mismatch — refresh page',
+      Unauthorized: 'session expired — reopen mini-app',
+      'Out of stock': 'out of stock',
+      maintenance: 'maintenance',
+    }
+    const m = lang === 'ru' ? ru : en
+    return m[code] ?? code
+  }
+
   const handleBuyWithBalance = async () => {
     if (purchaseLock.current || !user) return
     if (!rateLimit('purchase', 3, 30_000)) {
       toast.show(lang === 'ru' ? 'Слишком быстро, подождите' : 'Too fast, please wait', 'error')
       return
     }
+    if (api.isEnabled()) await refreshUser()
     const freshBalance = useStore.getState().user?.balance ?? 0
     if (freshBalance < total) {
-      toast.show(lang === 'ru' ? 'Недостаточно средств' : 'Insufficient balance', 'error')
+      toast.show(
+        lang === 'ru'
+          ? `Недостаточно средств (на сервере $${freshBalance.toFixed(2)})`
+          : `Insufficient balance ($${freshBalance.toFixed(2)} on server)`,
+        'error',
+      )
       return
     }
     purchaseLock.current = true
@@ -228,7 +256,12 @@ export default function ProductDetail() {
       }
       if (!res?.ok || !res.order) {
         const errMsg = (res as Record<string, unknown> | null)?.error
-        const detail = typeof errMsg === 'string' ? `: ${errMsg}` : ''
+        const detail =
+          typeof errMsg === 'string'
+            ? `: ${purchaseErrorText(errMsg)}`
+            : res === null
+              ? (lang === 'ru' ? ': нет ответа сервера' : ': no server response')
+              : ''
         toast.show((lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase') + detail, 'error')
         purchaseLock.current = false
         return

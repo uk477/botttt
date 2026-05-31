@@ -14,6 +14,9 @@ import adminRouter from "./routes/admin.js";
 import referralsRouter from "./routes/referrals.js";
 import { startPoller } from "./blockchain/poller.js";
 import { isValidTronBase58Address } from "./blockchain/tronAddress.js";
+import { seedCatalogIfEmpty } from "./seedCatalog.js";
+
+seedCatalogIfEmpty();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "..", "..", "dist");
