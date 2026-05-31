@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import { NetworkPicker, PayPanel } from './Deposit'
@@ -20,6 +20,7 @@ import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
 import type { CryptoNetwork, Order } from '../store/types'
 import { isActiveCryptoInvoice, pickLatestActiveCryptoPending } from '../utils/pendingOrder'
+import PendingInvoiceGate from '../components/PendingInvoiceGate'
 
 
 const EASE = [0.22, 1, 0.36, 1] as const
@@ -35,6 +36,7 @@ const TIERS = [
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { haptic } = useTelegram()
   const toast = useToast()
 
@@ -107,6 +109,18 @@ export default function ProductDetail() {
     [orders],
   )
 
+  const resumePendingBuy = (o: Order) => {
+    const net = o.provider as CryptoNetwork
+    setSelectedNet(net)
+    setPendingOrder({
+      id: o.id,
+      uniqueAmount: o.amount,
+      createdAt: o.created,
+      expiresAt: o.expires_at,
+    })
+    setPayStep('crypto_pay')
+  }
+
   useEffect(() => {
     if (payStep === 'pending_gate' && !latestPendingCrypto) {
       setPayStep('crypto_net')
@@ -122,17 +136,16 @@ export default function ProductDetail() {
     }
   }, [orders, pendingOrder, payStep])
 
-  const resumePendingBuy = (o: Order) => {
-    const net = o.provider as CryptoNetwork
-    setSelectedNet(net)
-    setPendingOrder({
-      id: o.id,
-      uniqueAmount: o.amount,
-      createdAt: o.created,
-      expiresAt: o.expires_at,
-    })
-    setPayStep('crypto_pay')
-  }
+  useEffect(() => {
+    const st = location.state as { resumeCryptoPay?: boolean } | null
+    if (!st?.resumeCryptoPay || !product) return
+    const pending = pickLatestActiveCryptoPending(orders)
+    if (pending?.kind === 'buy' && pending.product_id === product.id) {
+      setShowPayment(true)
+      resumePendingBuy(pending)
+    }
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, product?.id, orders, location.pathname, navigate])
 
   const similar = products
     .filter((p) => p.active && p.id !== product.id && p.cat_id === product.cat_id)
@@ -678,55 +691,17 @@ export default function ProductDetail() {
               )}
 
               {payStep === 'pending_gate' && latestPendingCrypto && (
-                <motion.div
-                  initial={false}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.42, ease: EASE }}
-                  style={{ padding: '0 4px 8px' }}
-                >
-                  <div className="fv-sheet-title-row">
+                <div style={{ padding: '0 2px 8px' }}>
+                  <div className="fv-sheet-title-row" style={{ marginBottom: 12 }}>
                     <button type="button" onClick={() => setPayStep('select')} aria-label="Back">
                       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                     </button>
-                    <h2>{lang === 'ru' ? 'Другой счёт открыт' : 'Another invoice is open'}</h2>
                   </div>
-                  <p className="fv-pay-sub" style={{ marginBottom: 16 }}>
-                    {lang === 'ru'
-                      ? latestPendingCrypto.kind === 'deposit'
-                        ? 'Сейчас открыто пополнение баланса. За товар можно платить только один счёт — сначала закройте пополнение или отмените его.'
-                        : 'Сейчас открыта оплата другого товара. Завершите её, отмените или создайте новый счёт на этот лот.'
-                      : latestPendingCrypto.kind === 'deposit'
-                        ? 'A balance top-up is open. Finish or cancel it before paying for this item.'
-                        : 'Another item payment is open. Continue it, cancel it, or start a new invoice for this product.'}
-                  </p>
-                  <div
-                    style={{
-                      padding: '14px 16px',
-                      borderRadius: 12,
-                      border: '1px solid rgba(255,210,74,0.28)',
-                      background: 'rgba(255,210,74,0.08)',
-                      marginBottom: 16,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: 11,
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    <div>
-                      {latestPendingCrypto.kind === 'deposit'
-                        ? (lang === 'ru' ? 'Пополнение баланса' : 'Balance top-up')
-                        : (latestPendingCrypto.product_title ?? (lang === 'ru' ? 'Покупка' : 'Purchase'))}
-                    </div>
-                    <div style={{ color: 'rgba(255,255,255,0.55)' }}>
-                      ${latestPendingCrypto.amount.toFixed(2)} · {latestPendingCrypto.provider?.toUpperCase()}
-                    </div>
-                    <div style={{ color: 'rgba(255,255,255,0.45)' }}>
-                      #{latestPendingCrypto.id.split('-').pop() ?? latestPendingCrypto.id.slice(-8)}
-                    </div>
-                  </div>
-                  <motion.button
-                    className="dpz-cta fv-full"
-                    type="button"
-                    onClick={() => {
+                  <PendingInvoiceGate
+                    lang={lang}
+                    invoice={latestPendingCrypto}
+                    context="product"
+                    onContinue={() => {
                       if (latestPendingCrypto.kind === 'deposit') {
                         navigate('/deposit')
                         setShowPayment(false)
@@ -734,77 +709,31 @@ export default function ProductDetail() {
                         resumePendingBuy(latestPendingCrypto)
                       }
                     }}
-                    whileTap={{ scale: 0.98 }}
-                    style={{ marginBottom: 10 }}
-                  >
-                    <span className="dpz-cta-bg" aria-hidden />
-                    <span className="dpz-cta-t">
-                      {latestPendingCrypto.kind === 'deposit'
-                        ? (lang === 'ru' ? 'К пополнению' : 'Go to top-up')
-                        : (lang === 'ru' ? 'Продолжить оплату' : 'Continue payment')}
-                    </span>
-                  </motion.button>
-                  <motion.button
-                    className="dpz-cta fv-full"
-                    type="button"
-                    onClick={() => {
+                    onCancelAndNew={() => {
                       void (async () => {
                         await cancelAllPendingCrypto()
+                        await reconcilePendingOrders()
                         setPendingOrder(null)
                         setSelectedNet(null)
                         setPayStep('crypto_net')
                       })()
                     }}
-                    whileTap={{ scale: 0.98 }}
-                    style={{ marginBottom: 10, opacity: 0.92 }}
-                  >
-                    <span className="dpz-cta-t">
-                      {latestPendingCrypto.kind === 'deposit'
-                        ? (lang === 'ru' ? 'Отменить пополнение · купить товар' : 'Cancel top-up · pay for item')
-                        : (lang === 'ru' ? 'Отменить и новый счёт на этот товар' : 'Cancel & new invoice for this item')}
-                    </span>
-                  </motion.button>
-                  {latestPendingCrypto.kind === 'buy' && (
-                    <motion.button
-                      className="dpz-cta fv-full"
-                      type="button"
-                      onClick={() => {
-                        void (async () => {
-                          await cancelAllPendingCrypto()
-                          setPendingOrder(null)
-                          setSelectedNet(null)
-                          setPayStep('crypto_net')
-                        })()
-                      }}
-                      whileTap={{ scale: 0.98 }}
-                      style={{ marginBottom: 10, opacity: 0.85 }}
-                    >
-                      <span className="dpz-cta-t">{lang === 'ru' ? 'Сменить сеть (отменить старый счёт)' : 'Change network (cancel old invoice)'}</span>
-                    </motion.button>
-                  )}
-                  <button
-                    type="button"
-                    className="fv-pay-ghost"
-                    onClick={() => setShowPayment(false)}
-                    style={{
-                      width: '100%',
-                      marginTop: 4,
-                      padding: '14px',
-                      background: 'transparent',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: 8,
-                      color: 'rgba(255,255,255,0.75)',
-                      fontFamily: "'Space Grotesk', system-ui, sans-serif",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {lang === 'ru' ? 'Закрыть (ждать в истории)' : 'Close (pay later in history)'}
-                  </button>
-                </motion.div>
+                    onChangeNetwork={
+                      latestPendingCrypto.kind === 'buy'
+                        ? () => {
+                            void (async () => {
+                              await cancelAllPendingCrypto()
+                              await reconcilePendingOrders()
+                              setPendingOrder(null)
+                              setSelectedNet(null)
+                              setPayStep('crypto_net')
+                            })()
+                          }
+                        : undefined
+                    }
+                    onDismiss={() => setShowPayment(false)}
+                  />
+                </div>
               )}
 
               {payStep === 'crypto_net' && (

@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
@@ -6,6 +7,7 @@ import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from './Toast'
 import CryptoLogo from './CryptoLogo'
 import DeliveryBlock, { ManualDeliveryBlock } from './DeliveryBlock'
+import { isActiveCryptoInvoice } from '../utils/pendingOrder'
 import type { Order, CryptoNetwork } from '../store/types'
 
 interface Props { order: Order | null; onClose: () => void }
@@ -50,6 +52,7 @@ function formatTimeFull(iso: string) {
 
 export default function OrderDetailModal({ order, onClose }: Props) {
   const t = useT()
+  const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
@@ -304,7 +307,7 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 createdAt={order.created}
               />
             )}
-            {!isDeposit && order.status === 'pending' && (
+            {order.status === 'pending' && isActiveCryptoInvoice(order) && (
               <div style={{
                 background: 'rgba(255,210,74,0.08)',
                 border: '1px solid rgba(255,210,74,0.25)',
@@ -313,11 +316,40 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 <div style={{ fontSize: 14, fontWeight: 700, color: AMBER, marginBottom: 6 }}>
                   ⏳ {lang === 'ru' ? 'Ожидает оплаты' : 'Awaiting payment'}
                 </div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5, marginBottom: 12 }}>
-                  {lang === 'ru'
-                    ? 'Переведите указанную сумму на кошелёк. После подтверждения транзакции заказ перейдёт в обработку.'
-                    : 'Send the specified amount to the wallet. Once confirmed, your order will be processed.'}
+                <div style={{
+                  fontFamily: MONO, fontSize: 12, color: 'rgba(255,255,255,0.75)',
+                  lineHeight: 1.6, marginBottom: 14,
+                }}>
+                  <div>${order.amount.toFixed(2)} · {cryptoOpt?.name ?? order.provider?.toUpperCase()}</div>
+                  <div style={{ opacity: 0.55, fontSize: 10 }}>#{order.id.slice(-8)}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    if (isDeposit) navigate('/deposit')
+                    else if (order.product_id) {
+                      navigate(`/product/${order.product_id}`, { state: { resumeCryptoPay: true } })
+                    } else navigate('/orders')
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: GREEN,
+                    color: INK,
+                    fontFamily: DISPLAY,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: '0.16em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    marginBottom: 10,
+                  }}
+                >
+                  {lang === 'ru' ? 'Перейти к оплате' : 'Go to payment'}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -349,6 +381,18 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 >
                   {lang === 'ru' ? 'Отменить счёт' : 'Cancel invoice'}
                 </button>
+              </div>
+            )}
+            {order.status === 'pending' && !isActiveCryptoInvoice(order) && (
+              <div style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 14, padding: '16px',
+                fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5,
+              }}>
+                {lang === 'ru'
+                  ? 'Срок оплаты истёк. Создайте новый счёт в пополнении или при оплате товара.'
+                  : 'Payment window expired. Create a new invoice from top-up or checkout.'}
               </div>
             )}
 

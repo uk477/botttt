@@ -7,6 +7,7 @@ import OrderDetailModal from '../components/OrderDetailModal'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import type { Order, CryptoNetwork } from '../store/types'
 import CryptoLogo from '../components/CryptoLogo'
+import { isActiveCryptoInvoice } from '../utils/pendingOrder'
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
 const MONO = "'JetBrains Mono', ui-monospace, monospace"
@@ -293,7 +294,13 @@ export default function Deposits() {
                           return (
                             <motion.button
                               key={o.id}
-                              onClick={() => setOpenOrder(o)}
+                              onClick={() => {
+                                if (o.status === 'pending' && isActiveCryptoInvoice(o)) {
+                                  navigate('/deposit')
+                                } else {
+                                  setOpenOrder(o)
+                                }
+                              }}
                               variants={{
                                 hidden: { opacity: 0, y: 8 },
                                 show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } },

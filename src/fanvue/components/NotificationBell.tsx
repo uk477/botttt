@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useAnimationControls } from 'framer-motion'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { useTelegram } from '../hooks/useTelegram'
-import PaymentWaiting from './PaymentWaiting'
 import OrderTrackingSheet from './OrderTrackingSheet'
 import CryptoLogo from './CryptoLogo'
 import { BellIcon } from './NavIcons'
+import { isActiveCryptoInvoice } from '../utils/pendingOrder'
 import type { PaymentNotification, Order } from '../store/types'
 
 function timeAgo(iso: string, lang: string): string {
@@ -20,10 +21,9 @@ function timeAgo(iso: string, lang: string): string {
 }
 
 export default function NotificationBell() {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const [activeNotif, setActiveNotif] = useState<PaymentNotification | null>(null)
   const [activeOrder, setActiveOrder] = useState<Order | null>(null)
-  const [successId, setSuccessId] = useState<string | null>(null)
   const prevUnreadRef = useRef(0)
   const controls = useAnimationControls()
 
@@ -32,7 +32,6 @@ export default function NotificationBell() {
   const orders = useStore((s) => s.orders)
   const markRead = useStore((s) => s.markNotificationsRead)
   const removeNotification = useStore((s) => s.removeNotification)
-  const creditDeposit = useStore((s) => s.creditDeposit)
   const { haptic } = useTelegram()
 
   const unread = notifications.filter((n) => !n.read).length
@@ -73,23 +72,23 @@ export default function NotificationBell() {
   const handleNotifTap = (n: PaymentNotification) => {
     const order = orders.find((o) => o.id === n.orderId)
     const status = order?.status ?? 'pending'
-    if (status === 'pending') {
+    if (status === 'pending' && order && isActiveCryptoInvoice(order)) {
       haptic('medium')
-      setActiveNotif(n)
       setOpen(false)
-    } else if ((status === 'paid' || status === 'completed') && n.kind === 'buy' && order) {
+      if (n.kind === 'deposit') {
+        navigate('/deposit')
+      } else if (order.product_id) {
+        navigate(`/product/${order.product_id}`, { state: { resumeCryptoPay: true } })
+      } else {
+        navigate('/orders')
+      }
+      return
+    }
+    if ((status === 'paid' || status === 'completed') && n.kind === 'buy' && order) {
       haptic('light')
       setOpen(false)
       setActiveOrder(order)
     }
-  }
-
-  const handleSuccess = (n: PaymentNotification) => {
-    creditDeposit(n.orderId, n.uniqueAmount)
-    setActiveNotif(null)
-    setSuccessId(n.orderId)
-    haptic('success')
-    setTimeout(() => setSuccessId(null), 3000)
   }
 
   const getOrderStatus = (orderId: string) =>
@@ -214,8 +213,6 @@ export default function NotificationBell() {
               const isPending = status === 'pending'
               const isDone = status === 'paid' || status === 'completed'
               const isFailed = status === 'failed' || status === 'expired'
-              const isSuccess = successId === n.orderId
-
               return (
                 <motion.div
                   key={n.orderId}
@@ -243,7 +240,7 @@ export default function NotificationBell() {
                         borderRadius: 4,
                       }} />
                     )}
-                    {(isDone || isSuccess) && (
+                    {isDone && (
                       <div style={{
                         position: 'absolute', bottom: -1, right: -1,
                         width: 14, height: 14, borderRadius: 7,
@@ -332,44 +329,6 @@ export default function NotificationBell() {
         <OrderTrackingSheet order={activeOrder} onClose={() => setActiveOrder(null)} />
       )}
 
-      {/* Full PaymentWaiting modal */}
-      <AnimatePresence>
-        {activeNotif && (
-          <motion.div
-            className="modal-overlay"
-            initial={false}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={(e) => { if (e.target === e.currentTarget) setActiveNotif(null) }}
-          >
-            <motion.div
-              className="sheet"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-            >
-              <div className="sheet-handle" style={{ cursor: 'grab' }} />
-              {(() => {
-                const crypto = CRYPTO_OPTIONS.find((c) => c.id === activeNotif.network)
-                if (!crypto) return null
-                return (
-                  <PaymentWaiting
-                    orderId={activeNotif.orderId}
-                    amountUsd={activeNotif.amountUsd}
-                    uniqueAmount={activeNotif.uniqueAmount}
-                    createdAt={orders.find((o) => o.id === activeNotif.orderId)?.created ?? activeNotif.createdAt}
-                    crypto={crypto}
-                    kind={activeNotif.kind}
-                    onCancel={() => setActiveNotif(null)}
-                    onSuccess={() => handleSuccess(activeNotif)}
-                  />
-                )
-              })()}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </>
   )
 }

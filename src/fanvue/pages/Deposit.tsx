@@ -18,7 +18,12 @@ import { track } from '../utils/analytics'
 import { rateLimit, rateLimitUndo, isValidAmount, audit } from '../utils/security'
 import { paymentSecondsRemaining } from '../utils/paymentTimer'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
-import { pickLatestActiveDeposit, pickLatestActiveCryptoPending } from '../utils/pendingOrder'
+import PendingInvoiceGate from '../components/PendingInvoiceGate'
+import {
+  isActiveCryptoInvoice,
+  pickLatestActiveDeposit,
+  pickLatestActiveCryptoPending,
+} from '../utils/pendingOrder'
 
 type Step = 'amount' | 'network' | 'pay' | 'success'
 const QUICK_AMOUNTS = [10, 25, 50, 100]
@@ -94,23 +99,34 @@ export default function Deposit() {
     void reconcilePendingOrders()
   }, [reconcilePendingOrders])
 
+  const resumedIdRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (blockingBuy) return
     if (activeDeposit) {
-      setAmount(String(activeDeposit.amount))
-      setNetwork((activeDeposit.provider as CryptoNetwork) ?? null)
-      setPendingOrder({
-        id: activeDeposit.id,
-        uniqueAmount: activeDeposit.amount,
-        createdAt: activeDeposit.created,
-        expiresAt: activeDeposit.expires_at,
-      })
-      setStep('pay')
+      if (resumedIdRef.current !== activeDeposit.id) {
+        resumedIdRef.current = activeDeposit.id
+        setAmount(String(activeDeposit.amount))
+        setNetwork((activeDeposit.provider as CryptoNetwork) ?? null)
+        setPendingOrder({
+          id: activeDeposit.id,
+          uniqueAmount: activeDeposit.amount,
+          createdAt: activeDeposit.created,
+          expiresAt: activeDeposit.expires_at,
+        })
+        setStep('pay')
+      }
       return
     }
-    setPendingOrder(null)
-    if (step === 'pay' || step === 'network') setStep('amount')
-  }, [activeDeposit?.id, activeDeposit?.amount, activeDeposit?.expires_at, blockingBuy?.id, step])
+    resumedIdRef.current = null
+    if (pendingOrder) {
+      const o = orders.find((x) => x.id === pendingOrder.id)
+      if (!o || o.kind !== 'deposit' || !isActiveCryptoInvoice(o)) {
+        setPendingOrder(null)
+        if (step === 'pay') setStep('amount')
+      }
+    }
+  }, [activeDeposit?.id, blockingBuy?.id, orders, pendingOrder?.id, step])
 
   const numAmount = parseFloat(amount) || 0
   const amountOk = numAmount >= 1
@@ -207,8 +223,6 @@ export default function Deposit() {
   const stepIndex = step === 'amount' ? 0 : step === 'network' ? 1 : 2
 
   if (blockingBuy && step !== 'success') {
-    const title =
-      blockingBuy.product_title ?? (lang === 'ru' ? 'Покупка товара' : 'Product checkout')
     return (
       <PageTransition>
         <main className="dpz">
@@ -218,40 +232,25 @@ export default function Deposit() {
               <span>{lang === 'ru' ? 'НАЗАД' : 'BACK'}</span>
             </button>
           </header>
-          <section className="dpz-card" style={{ marginTop: 12 }}>
-            <h1 className="dpz-h2">{lang === 'ru' ? 'Сначала оплата товара' : 'Finish product payment first'}</h1>
-            <p className="dpz-lead" style={{ marginBottom: 16 }}>
-              {lang === 'ru'
-                ? 'Открыт счёт на покупку. Пополнение баланса и оплата товара не идут одновременно — закройте покупку или отмените счёт.'
-                : 'A product invoice is open. Top-up and checkout cannot run together — pay or cancel the purchase first.'}
-            </p>
-            <p style={{ fontFamily: 'monospace', fontSize: 12, opacity: 0.85, marginBottom: 20 }}>
-              {title} · ${blockingBuy.amount.toFixed(2)} · {blockingBuy.provider?.toUpperCase()}
-            </p>
-            <button
-              type="button"
-              className="dpz-cta"
-              onClick={() => {
+          <div style={{ marginTop: 12 }}>
+            <PendingInvoiceGate
+              lang={lang}
+              invoice={blockingBuy}
+              context="deposit"
+              onContinue={() => {
                 if (blockingBuy.product_id) navigate(`/product/${blockingBuy.product_id}`)
                 else navigate('/orders')
               }}
-            >
-              <span className="dpz-cta-t">{lang === 'ru' ? 'К оплате товара' : 'Go to checkout'}</span>
-            </button>
-            <button
-              type="button"
-              className="dpz-cta"
-              style={{ marginTop: 10, opacity: 0.9 }}
-              onClick={() => {
+              onCancelAndNew={() => {
                 void (async () => {
                   await cancelAllPendingCrypto()
                   await reconcilePendingOrders()
+                  setStep('amount')
                 })()
               }}
-            >
-              <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить покупку · пополнить баланс' : 'Cancel purchase · top up balance'}</span>
-            </button>
-          </section>
+              onDismiss={() => navigate(-1)}
+            />
+          </div>
         </main>
       </PageTransition>
     )
