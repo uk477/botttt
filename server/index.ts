@@ -114,6 +114,11 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/version", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ appBuild: APP_BUILD, dist: DIST });
+});
+
 // ── Test notification (admin only) ───────────────────────────────
 app.get("/api/test-notify", async (req, res) => {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
@@ -142,11 +147,6 @@ app.use(
     },
   }),
 );
-
-app.get("/api/version", (_req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json({ appBuild: APP_BUILD });
-});
 
 app.get("/{*splat}", (_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
