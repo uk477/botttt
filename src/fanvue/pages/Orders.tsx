@@ -59,11 +59,7 @@ export default function Orders() {
     return cleanup
   }, [openOrder, navigate, showBackButton])
 
-  // include all buy orders in any status
-  const orders = useMemo(
-    () => allOrders.filter((o) => o.kind === 'buy'),
-    [allOrders],
-  )
+  const orders = useMemo(() => allOrders, [allOrders])
 
   const filtered = useMemo(() => {
     const arr = filter === 'all' ? orders : orders.filter((o) => bucket(o) === filter)

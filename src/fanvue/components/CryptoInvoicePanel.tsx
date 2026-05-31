@@ -280,16 +280,6 @@ export default function CryptoInvoicePanel({
         </p>
       </div>
 
-      <footer className="cinv__foot">
-        <button
-          type="button"
-          className="btn btn-secondary cinv__cancel"
-          onClick={onCancel}
-          disabled={isPaid}
-        >
-          {lang === 'ru' ? 'Отменить платёж' : 'Cancel payment'}
-        </button>
-      </footer>
     </div>
   )
 }

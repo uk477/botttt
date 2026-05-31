@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import CryptoInvoicePanel, { type CryptoInvoicePanelProps } from './CryptoInvoicePanel'
@@ -10,8 +10,6 @@ type Props = CryptoInvoicePanelProps & {
 
 /** Full-screen payment sheet — fixed footer, scrollable body. */
 export default function CryptoInvoiceOverlay({ open, title, lang, onCancel, ...panel }: Props) {
-  const sheetRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
     if (!open) return
     document.body.classList.add('pay-sheet-open')
@@ -21,10 +19,6 @@ export default function CryptoInvoiceOverlay({ open, title, lang, onCancel, ...p
       document.querySelector('.scroll-area')?.classList.remove('pay-sheet-open')
     }
   }, [open])
-
-  const clearTransform = useCallback(() => {
-    if (sheetRef.current) sheetRef.current.style.transform = 'none'
-  }, [])
 
   if (typeof document === 'undefined') return null
 
@@ -40,15 +34,11 @@ export default function CryptoInvoiceOverlay({ open, title, lang, onCancel, ...p
           exit={{ opacity: 0 }}
         >
           <motion.div
-            ref={sheetRef}
             className="cinv-sheet"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'tween', duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
-            onAnimationComplete={(def) => {
-              if ((def as { y?: number }).y === 0) clearTransform()
-            }}
             onClick={(e) => e.stopPropagation()}
           >
             {title && (
@@ -58,6 +48,17 @@ export default function CryptoInvoiceOverlay({ open, title, lang, onCancel, ...p
             )}
             <CryptoInvoicePanel lang={lang} onCancel={onCancel} {...panel} />
           </motion.div>
+
+          {/* Footer outside motion.div — no transform, truly fixed */}
+          <footer className="cinv__foot-fixed">
+            <button
+              type="button"
+              className="btn btn-secondary cinv__cancel"
+              onClick={onCancel}
+            >
+              {lang === 'ru' ? 'Отменить платёж' : 'Cancel payment'}
+            </button>
+          </footer>
         </motion.div>
       )}
     </AnimatePresence>,
