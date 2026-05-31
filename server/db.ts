@@ -24,6 +24,20 @@ const db = new Database(DB_PATH, { verbose: undefined });
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
+/** Add missing columns on legacy SQLite schemas (CREATE TABLE IF NOT EXISTS does not alter). */
+function migrateColumns(table: string, cols: { name: string; ddl: string }[]) {
+  const rows = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+  ).get(table) as { name: string } | undefined;
+  if (!rows) return;
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const col of cols) {
+    if (!existing.has(col.name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.ddl}`);
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id            TEXT PRIMARY KEY,
@@ -89,7 +103,7 @@ db.exec(`
   );
 `);
 
-for (const col of [
+migrateColumns("users", [
   { name: "username", ddl: "TEXT" },
   { name: "full_name", ddl: "TEXT" },
   { name: "balance", ddl: "REAL NOT NULL DEFAULT 0" },
@@ -99,12 +113,7 @@ for (const col of [
   { name: "ref_count", ddl: "INTEGER NOT NULL DEFAULT 0" },
   { name: "ref_balance", ddl: "REAL NOT NULL DEFAULT 0" },
   { name: "created_at", ddl: "TEXT NOT NULL DEFAULT (datetime('now'))" },
-] as const) {
-  const has = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).some(
-    (c) => c.name === col.name,
-  );
-  if (!has) db.exec(`ALTER TABLE users ADD COLUMN ${col.name} ${col.ddl}`);
-}
+]);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS game_scores (
@@ -251,6 +260,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_rw_uid ON ref_withdrawals(uid);
   CREATE INDEX IF NOT EXISTS idx_rw_status ON ref_withdrawals(status);
 `);
+
+migrateColumns("ref_withdrawals", [
+  { name: "completed_at", ddl: "TEXT" },
+  { name: "txid", ddl: "TEXT" },
+  { name: "reject_reason", ddl: "TEXT" },
+]);
 
 const settingsStmts = {
   get: db.prepare(`SELECT value FROM settings WHERE key = ?`),
