@@ -89,6 +89,18 @@ db.exec(`
   );
 `);
 
+for (const col of [
+  { name: "full_name", ddl: "TEXT" },
+  { name: "ref_earned", ddl: "REAL NOT NULL DEFAULT 0" },
+  { name: "ref_count", ddl: "INTEGER NOT NULL DEFAULT 0" },
+  { name: "ref_balance", ddl: "REAL NOT NULL DEFAULT 0" },
+] as const) {
+  const has = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).some(
+    (c) => c.name === col.name,
+  );
+  if (!has) db.exec(`ALTER TABLE users ADD COLUMN ${col.name} ${col.ddl}`);
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS game_scores (
     uid       INTEGER NOT NULL,
