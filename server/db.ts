@@ -90,10 +90,15 @@ db.exec(`
 `);
 
 for (const col of [
+  { name: "username", ddl: "TEXT" },
   { name: "full_name", ddl: "TEXT" },
+  { name: "balance", ddl: "REAL NOT NULL DEFAULT 0" },
+  { name: "spent", ddl: "REAL NOT NULL DEFAULT 0" },
+  { name: "purchases", ddl: "INTEGER NOT NULL DEFAULT 0" },
   { name: "ref_earned", ddl: "REAL NOT NULL DEFAULT 0" },
   { name: "ref_count", ddl: "INTEGER NOT NULL DEFAULT 0" },
   { name: "ref_balance", ddl: "REAL NOT NULL DEFAULT 0" },
+  { name: "created_at", ddl: "TEXT NOT NULL DEFAULT (datetime('now'))" },
 ] as const) {
   const has = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).some(
     (c) => c.name === col.name,
