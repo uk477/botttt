@@ -39,6 +39,7 @@ function prevPeriod(ts: string, period: Period) {
 
 const QUICK = [
   { label: 'Заказы', path: '/admin/orders' },
+  { label: 'Оплаченные', path: '/admin/sales' },
   { label: 'Товары', path: '/admin/products' },
   { label: 'Клиенты', path: '/admin/users' },
   { label: 'Чат', path: '/admin/support' },
@@ -113,7 +114,21 @@ export default function AdminDashboard() {
     { id: 'all', label: lang === 'ru' ? 'Всё' : 'All' },
   ]
 
-  const recent = logs.slice(0, 8)
+  const pendingLive = useMemo(
+    () => orders
+      .filter((o) => o.status === 'pending')
+      .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+      .slice(0, 8),
+    [orders],
+  )
+  const recentPaid = useMemo(
+    () => orders
+      .filter((o) => o.status === 'paid' || o.status === 'completed')
+      .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+      .slice(0, 6),
+    [orders],
+  )
+  const recentLogs = logs.slice(0, 4)
   const attention = pendingCount + openTickets + pendingRefW
 
   const downloadSales = () => {
@@ -228,27 +243,68 @@ export default function AdminDashboard() {
           </div>
         </AdminSection>
 
-        <AdminSection label={lang === 'ru' ? 'Последние оплаты' : 'Recent payments'}>
-          {recent.length === 0 ? (
+        <AdminSection label={lang === 'ru' ? 'Счета в ожидании' : 'Pending invoices'}>
+          {pendingLive.length === 0 ? (
             <AdminEmpty>
-              {lang === 'ru' ? 'Пока нет оплат за выбранный период.' : 'No payments for this period yet.'}
+              {lang === 'ru' ? 'Нет активных счетов.' : 'No active invoices.'}
             </AdminEmpty>
           ) : (
-            recent.map((log) => (
-              <div key={log.id} className="adm-log">
+            pendingLive.map((o) => (
+              <div
+                key={o.id}
+                className="adm-log"
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate('/admin/orders')}
+              >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>
-                    @{log.username || '—'} · {log.kind === 'buy' ? log.product ?? 'Buy' : 'Deposit'}
+                    {o.kind === 'buy' ? (o.product_title || 'Buy') : (lang === 'ru' ? 'Пополнение' : 'Deposit')}
+                    {' · '}${o.amount.toFixed(2)}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
-                    {new Date(log.ts).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  <div style={{ fontSize: 11, color: 'var(--adm-warn)', marginTop: 2 }}>
+                    {lang === 'ru' ? 'Ожидает' : 'Pending'} · #{o.id.slice(-8)}
                   </div>
-                </div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: log.status === 'success' ? 'var(--adm-accent)' : 'var(--adm-danger)' }}>
-                  {log.kind === 'deposit' ? '+' : ''}${log.amount.toFixed(2)}
                 </div>
               </div>
             ))
+          )}
+        </AdminSection>
+
+        <AdminSection label={lang === 'ru' ? 'Недавно оплачено' : 'Recently paid'}>
+          {recentPaid.length === 0 && recentLogs.length === 0 ? (
+            <AdminEmpty>
+              {lang === 'ru' ? 'Пока нет завершённых оплат.' : 'No completed payments yet.'}
+            </AdminEmpty>
+          ) : (
+            <>
+              {recentPaid.map((o) => (
+                <div key={o.id} className="adm-log">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {o.kind === 'buy' ? (o.product_title || 'Buy') : 'Deposit'} · ${o.amount.toFixed(2)}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
+                      {o.status} · {new Date(o.created).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {recentLogs.map((log) => (
+                <div key={log.id} className="adm-log">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      @{log.username || '—'} · {log.kind === 'buy' ? log.product ?? 'Buy' : 'Deposit'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
+                      {new Date(log.ts).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--adm-accent)' }}>
+                    {log.kind === 'deposit' ? '+' : ''}${log.amount.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </AdminSection>
       </div>

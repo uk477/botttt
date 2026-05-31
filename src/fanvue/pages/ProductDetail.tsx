@@ -11,6 +11,7 @@ import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } from '../utils/payment'
+import { getLatestRates } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
 import {
   adminBalancePurchase,
@@ -65,10 +66,12 @@ export default function ProductDetail() {
   const [pendingOrder, setPendingOrder] = useState<{
     id: string
     uniqueAmount: number
+    amountCrypto?: number
     createdAt?: string
     expiresAt?: string
     address?: string
   } | null>(null)
+  const [invoiceCreating, setInvoiceCreating] = useState(false)
   const purchaseLock = useRef(false)
 
   useEffect(() => {
@@ -271,17 +274,19 @@ export default function ProductDetail() {
       }
     }
 
-    addRealSale({
-      id: `sale-${Date.now()}`,
-      uid: user.uid,
-      username: user.username,
-      full_name: user.full_name,
-      photo_url: user.photo_url,
-      productTitle: title,
-      productIndex: products.findIndex((p) => p.id === product.id) <= 0 ? 0 : 1,
-      amount: total,
-      ts: Date.now(),
-    })
+    if (!api.isEnabled()) {
+      addRealSale({
+        id: `sale-${Date.now()}`,
+        uid: user.uid,
+        username: user.username,
+        full_name: user.full_name,
+        photo_url: user.photo_url,
+        productTitle: title,
+        productIndex: products.findIndex((p) => p.id === product.id) <= 0 ? 0 : 1,
+        amount: total,
+        ts: Date.now(),
+      })
+    }
     toast.show(lang === 'ru' ? 'Заказ оплачен.' : 'Order paid.', 'success')
     setPayStep('success')
     setTimeout(() => { purchaseLock.current = false }, 2000)
@@ -295,6 +300,7 @@ export default function ProductDetail() {
       return
     }
     purchaseLock.current = true
+    setInvoiceCreating(true)
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
     await cancelAllPendingCrypto()
@@ -310,12 +316,15 @@ export default function ProductDetail() {
     if (api.isEnabled() && !result.ok) {
       toast.show(formatOrderError(result.code, result.message, lang), 'error')
       purchaseLock.current = false
+      setInvoiceCreating(false)
       return
     }
     const remote = result.ok ? result : null
     const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
     const orderId = remote?.id ?? generateOrderId('buy')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(total)
+    const amountCrypto = remote?.amount_crypto
+    if (!api.isEnabled()) await getLatestRates()
     const createdIso = new Date().toISOString()
     addOrder({
       id: orderId,
@@ -324,6 +333,7 @@ export default function ProductDetail() {
       product_title: title,
       product_id: product.id,
       amount: uniqueAmount,
+      amount_crypto: amountCrypto,
       status: 'pending',
       quantity: qty,
       provider: selectedNet,
@@ -333,10 +343,12 @@ export default function ProductDetail() {
     setPendingOrder({
       id: orderId,
       uniqueAmount,
+      amountCrypto,
       createdAt: createdIso,
       expiresAt: remote?.expires_at,
       address: remote?.address,
     })
+    setInvoiceCreating(false)
     setPayStep('crypto_pay')
     void reconcilePendingOrders()
     setTimeout(() => { purchaseLock.current = false }, 2000)
@@ -787,23 +799,33 @@ export default function ProductDetail() {
                   </div>
                   <div className="fv-pay-amount-pill">
                     <span>{lang === 'ru' ? 'К оплате' : 'Total'}</span>
-                    <strong>${total.toFixed(2)}</strong>
+                    <strong>~${total.toFixed(2)}</strong>
                   </div>
                   <NetworkPicker selected={selectedNet} onSelect={(n) => { haptic('light'); setSelectedNet(n) }} lang={lang} />
                   <motion.button
                     className="dpz-cta fv-full"
-                    disabled={!selectedNet}
+                    disabled={!selectedNet || invoiceCreating}
                     onClick={handlePayCrypto}
                     whileTap={{ scale: 0.98 }}
                   >
                     <span className="dpz-cta-bg" aria-hidden />
-                    <span className="dpz-cta-t">{lang === 'ru' ? 'Создать оплату' : 'Create payment'}</span>
+                    <span className="dpz-cta-t">
+                      {invoiceCreating
+                        ? (lang === 'ru' ? 'Создаём счёт…' : 'Creating invoice…')
+                        : (lang === 'ru' ? 'Создать оплату' : 'Create payment')}
+                    </span>
                     <svg className="dpz-cta-ic" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </motion.button>
                 </motion.div>
               )}
 
-              {payStep === 'crypto_pay' && cryptoOption && pendingOrder && (
+              {invoiceCreating && (
+                <div className="fv-pay-creating" aria-busy="true">
+                  <p className="t-sm t-muted">{lang === 'ru' ? 'Формируем сумму к оплате…' : 'Preparing payment amount…'}</p>
+                </div>
+              )}
+
+              {payStep === 'crypto_pay' && cryptoOption && pendingOrder && !invoiceCreating && (
                 <motion.div
                   className="dpz dpz--inline"
                   initial={false}
@@ -812,8 +834,8 @@ export default function ProductDetail() {
                 >
                   <PayPanel
                     orderId={pendingOrder.id}
-                    amountUsd={total}
                     uniqueAmount={pendingOrder.uniqueAmount}
+                    amountCrypto={pendingOrder.amountCrypto}
                     createdAt={pendingOrder.createdAt}
                     expiresAt={pendingOrder.expiresAt}
                     network={cryptoOption.id}
@@ -849,15 +871,15 @@ export default function ProductDetail() {
                     onSuccess={() => {
                       if (pendingOrder && selectedNet) {
                         setOrderStatus(pendingOrder.id, 'paid')
-                        // Автовыдача после оплаты криптой
                         if (product.delivery === 'auto') tryAutoFulfill(pendingOrder.id)
                         addNotification({
                           orderId: pendingOrder.id,
                           kind: 'buy',
-                          amountUsd: total,
+                          amountUsd: pendingOrder.uniqueAmount,
                           uniqueAmount: pendingOrder.uniqueAmount,
                           network: selectedNet,
                         })
+                        void refreshUser()
                       }
                       setPayStep('success')
                     }}

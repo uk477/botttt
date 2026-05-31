@@ -96,6 +96,8 @@ export interface Order {
   /** ID товара — нужен для автовыдачи (взятия следующего пула). */
   product_id?: number
   amount: number
+  /** Locked crypto amount from invoice (prevents UI flicker on rate refresh). */
+  amount_crypto?: number
   status: OrderStatus
   provider?: string
   quantity?: number

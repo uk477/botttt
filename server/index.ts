@@ -11,6 +11,7 @@ import ordersRouter from "./routes/orders.js";
 import notifyRouter from "./routes/notify.js";
 import telegramRouter from "./routes/telegram.js";
 import adminRouter from "./routes/admin.js";
+import referralsRouter from "./routes/referrals.js";
 import { startPoller } from "./blockchain/poller.js";
 import { isValidTronBase58Address } from "./blockchain/tronAddress.js";
 
@@ -67,6 +68,7 @@ app.use(ordersRouter);
 app.use(notifyRouter);
 app.use(telegramRouter);
 app.use(adminRouter);
+app.use(referralsRouter);
 
 // ── Game leaderboard ──────────────────────────────────────────────
 import { gameScores } from "./db.js";

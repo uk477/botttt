@@ -64,9 +64,16 @@ export default function AdminMore() {
           <AdminMenuItem
             icon={<IconDeposit />}
             title={lang === 'ru' ? 'Пополнения' : 'Deposits'}
-            description={lang === 'ru' ? 'Депозиты и экспорт' : 'Deposits and export'}
+            description={lang === 'ru' ? 'Депозиты, ожидание и экспорт' : 'Deposits, pending and export'}
             path="/admin/deposits"
             color="#5eead4"
+          />
+          <AdminMenuItem
+            icon={<IconMoney />}
+            title={lang === 'ru' ? 'Оплаченные лоты' : 'Paid lots'}
+            description={lang === 'ru' ? 'Реальные покупки (не в процессе)' : 'Confirmed purchases only'}
+            path="/admin/sales"
+            color="#39ff63"
           />
           <AdminMenuItem
             icon={<IconMoney />}

@@ -5243,6 +5243,18 @@ body.pay-sheet-open,
   text-transform: uppercase;
   opacity: 0.92;
 }
+.dpz-pay-hero-val--pulse {
+  opacity: 0.45;
+  animation: dpz-pay-pulse 1s ease-in-out infinite;
+}
+@keyframes dpz-pay-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+.fv-pay-creating {
+  padding: 24px 16px;
+  text-align: center;
+}
 
 .dpz-pay-qr {
   position: relative;

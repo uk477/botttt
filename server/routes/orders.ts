@@ -13,6 +13,8 @@ import { ENV } from "../env.js";
 import { getPublicStoreConfig } from "../storeConfig.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
 import { toSqliteUtc } from "../utils/sqliteTime.js";
+import { mapServerOrder } from "../../shared/orderMap.js";
+import { processReferralPurchase } from "../referrals.js";
 
 const router = Router();
 
@@ -348,6 +350,11 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     lang,
   );
 
+  const completedOrder = orders.get(id);
+  if (completedOrder) {
+    processReferralPurchase(completedOrder);
+  }
+
   res.json({
     ok: true,
     order: {
@@ -443,7 +450,8 @@ router.get("/api/orders", (req: Request, res: Response) => {
     return;
   }
   orders.expireOld();
-  res.json({ orders: orders.getByUid(user.id) });
+  const rows = orders.getByUid(user.id);
+  res.json({ orders: rows.map((o) => mapServerOrder(o as unknown as Record<string, unknown>)) });
 });
 
 export default router;

@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import { verifyInitData, isAdmin } from "../telegram.js";
 import { users, settings } from "../db.js";
+import { parseReferrerUid, tryLinkReferral } from "../referrals.js";
 import { persistUserLangIfMissing } from "../userLang.js";
 import { readMaintenanceFlag } from "../storeConfig.js";
 
@@ -29,6 +30,14 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
     username: user.username ?? null,
     full_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
   });
+
+  const startParam =
+    (typeof req.body?.start_param === "string" ? req.body.start_param : "") ||
+    "";
+  const referrerUid = parseReferrerUid(startParam);
+  if (referrerUid) {
+    tryLinkReferral(user.id, referrerUid);
+  }
 
   const preferred_lang = persistUserLangIfMissing(user.id, user.language_code);
 

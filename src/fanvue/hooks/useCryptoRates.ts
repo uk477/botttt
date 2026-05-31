@@ -92,7 +92,7 @@ async function fetchRates(): Promise<LiveRates> {
   }
 }
 
-async function getLatestRates(): Promise<LiveRates> {
+export async function getLatestRates(): Promise<LiveRates> {
   if (_cache && Date.now() - _cache.updatedAt < CACHE_TTL) return _cache
 
   if (_fetchPromise) return _fetchPromise

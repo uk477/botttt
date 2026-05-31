@@ -11,7 +11,7 @@ import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
 import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
-import { useCryptoRates, calcCryptoAmount, formatCryptoAmount } from '../hooks/useCryptoRates'
+import { useCryptoRates, calcCryptoAmount, formatCryptoAmount, getLatestRates } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
 import { adminDepositCancelled, formatUserRef } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
@@ -95,6 +95,7 @@ export default function Deposit() {
     setPendingOrder({
       id: o.id,
       uniqueAmount: o.amount,
+      amountCrypto: o.amount_crypto,
       createdAt: o.created,
       expiresAt: o.expires_at,
     })
@@ -107,6 +108,7 @@ export default function Deposit() {
   const [pendingOrder, setPendingOrder] = useState<{
     id: string
     uniqueAmount: number
+    amountCrypto?: number
     createdAt: string
     expiresAt?: string
     address?: string
@@ -212,11 +214,14 @@ export default function Deposit() {
     const depositCount = orders.filter((o) => o.kind === 'deposit').length + 1
     const orderId = remote?.id ?? generateOrderId('deposit')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(numAmount)
+    const amountCrypto = remote?.amount_crypto
+    if (!api.isEnabled()) await getLatestRates()
     addOrder({
       id: orderId,
       orderNum: depositCount,
       kind: 'deposit',
       amount: uniqueAmount,
+      amount_crypto: amountCrypto,
       status: 'pending',
       provider: network,
       created: new Date().toISOString(),
@@ -225,11 +230,12 @@ export default function Deposit() {
     setPendingOrder({
       id: orderId,
       uniqueAmount,
+      amountCrypto,
       createdAt: new Date().toISOString(),
       expiresAt: remote?.expires_at,
       address: remote?.address,
     })
-    addNotification({ orderId, kind: 'deposit', amountUsd: numAmount, uniqueAmount, network })
+    addNotification({ orderId, kind: 'deposit', amountUsd: uniqueAmount, uniqueAmount, network })
     setCreating(false)
     setStep('pay')
   }
@@ -448,8 +454,8 @@ export default function Deposit() {
             >
               <PayPanel
                 orderId={pendingOrder.id}
-                amountUsd={numAmount}
                 uniqueAmount={pendingOrder.uniqueAmount}
+                amountCrypto={pendingOrder.amountCrypto}
                 createdAt={pendingOrder.createdAt}
                 expiresAt={pendingOrder.expiresAt}
                 network={cryptoOption.id}
@@ -608,13 +614,14 @@ export function NetworkPicker({
 const TOTAL_SECONDS = CONFIG.paymentTimeoutMinutes * 60
 
 export function PayPanel({
-  orderId, amountUsd, uniqueAmount, createdAt, expiresAt, network,
+  orderId, uniqueAmount, amountCrypto, createdAt, expiresAt, network,
   cryptoName, cryptoSymbol, cryptoColor, cryptoAddressFallback,
   lang, onCancel, onSuccess,
 }: {
   orderId: string
-  amountUsd: number
   uniqueAmount: number
+  /** Server-locked crypto amount from invoice — avoids rate refresh flicker. */
+  amountCrypto?: number
   createdAt?: string
   expiresAt?: string
   network: CryptoNetwork
@@ -643,8 +650,23 @@ export function PayPanel({
   const qrOverride = qrOverrides[network]
 
   const rates = useCryptoRates()
-  const cryptoAmount = calcCryptoAmount(uniqueAmount, network, rates)
-  const qrData = paymentUri(network, liveAddress, cryptoAmount)
+  const lockedCrypto = amountCrypto != null && amountCrypto > 0 ? amountCrypto : null
+  const [amountReady, setAmountReady] = useState(lockedCrypto != null)
+
+  useEffect(() => {
+    if (lockedCrypto != null) {
+      setAmountReady(true)
+      return
+    }
+    let cancelled = false
+    getLatestRates().then(() => {
+      if (!cancelled) setAmountReady(true)
+    })
+    return () => { cancelled = true }
+  }, [lockedCrypto, network, uniqueAmount])
+
+  const cryptoAmount = lockedCrypto ?? calcCryptoAmount(uniqueAmount, network, rates)
+  const qrData = amountReady ? paymentUri(network, liveAddress, cryptoAmount) : ''
 
   useEffect(() => {
     if (cryptoAddressFallback) return
@@ -789,22 +811,27 @@ export function PayPanel({
       <section className="dpz-pay-stage">
         <span className="dpz-pay-stage-glow" aria-hidden />
         <div className="dpz-pay-hero">
-          <motion.button
-            type="button"
-            className="dpz-pay-hero-num dpz-pay-hero-num--btn"
-            onClick={onCopyAmount}
-            key={String(cryptoAmount)}
-            initial={false}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.36, ease: EASE }}
-            whileTap={{ scale: 0.97 }}
-            aria-label={lang === 'ru' ? 'Скопировать сумму' : 'Copy amount'}
-          >
-            <span className="dpz-pay-hero-val">{formatCryptoAmount(cryptoAmount, network)}</span>
-            <em>{cryptoSymbol}</em>
-          </motion.button>
+          {!amountReady ? (
+            <div className="dpz-pay-hero-loading" aria-busy="true">
+              <span className="dpz-pay-hero-val dpz-pay-hero-val--pulse">···</span>
+            </div>
+          ) : (
+            <motion.button
+              type="button"
+              className="dpz-pay-hero-num dpz-pay-hero-num--btn"
+              onClick={onCopyAmount}
+              initial={false}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.36, ease: EASE }}
+              whileTap={{ scale: 0.97 }}
+              aria-label={lang === 'ru' ? 'Скопировать сумму' : 'Copy amount'}
+            >
+              <span className="dpz-pay-hero-val">{formatCryptoAmount(cryptoAmount, network)}</span>
+              <em>{cryptoSymbol}</em>
+            </motion.button>
+          )}
           <span className="dpz-pay-hero-eye">
-            ≈ ${uniqueAmount.toFixed(2)}
+            ${uniqueAmount.toFixed(2)}
           </span>
         </div>
 

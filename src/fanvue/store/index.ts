@@ -134,23 +134,10 @@ function syncNotificationsWithOrders(
   return next.slice(0, 30)
 }
 
+import { mapServerOrder as mapServerOrderRow } from '../../../shared/orderMap'
+
 function mapServerOrder(o: Record<string, unknown>): Order {
-  return {
-    id: String(o.id),
-    uid: o.uid != null ? Number(o.uid) : undefined,
-    kind: (o.kind as Order['kind']) || 'deposit',
-    amount: Number(o.amount_usd ?? o.amount ?? 0),
-    status: (o.status as Order['status']) || 'pending',
-    provider: String(o.network ?? o.provider ?? ''),
-    created: String(o.created_at ?? o.created ?? new Date().toISOString()),
-    expires_at: o.expires_at ? String(o.expires_at) : undefined,
-    paid_at: o.paid_at ? String(o.paid_at) : undefined,
-    txid: o.tx_hash ? String(o.tx_hash) : o.txid ? String(o.txid) : undefined,
-    product_title: o.product_title ? String(o.product_title) : undefined,
-    product_id: o.product_id != null ? Number(o.product_id) : undefined,
-    quantity: o.quantity != null ? Number(o.quantity) : undefined,
-    orderNum: o.orderNum != null ? Number(o.orderNum) : undefined,
-  }
+  return mapServerOrderRow(o) as Order
 }
 
 export type { SiteContent, SiteLinks } from './types'
@@ -362,10 +349,14 @@ export const useStore = create<AppStore>()(
 
           await get().syncStoreConfig()
 
+          const tgStart =
+            (window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } })
+              .Telegram?.WebApp?.initDataUnsafe?.start_param ?? ''
+
           let serverUser: Record<string, unknown> | null = null
           for (let attempt = 0; attempt < 8; attempt++) {
             if (attempt > 0) await sleep(300)
-            const res = await api.auth({})
+            const res = await api.auth({ start_param: tgStart })
             if (res && typeof res === 'object') {
               serverUser = res as Record<string, unknown>
               break
@@ -441,6 +432,35 @@ export const useStore = create<AppStore>()(
             if (Object.keys(update).length > 0) set(update)
           }
 
+          const refWRes = await api.refWithdrawals()
+          if (Array.isArray(refWRes) && refWRes.length > 0) {
+            set({
+              refWithdrawals: refWRes as AppStore['refWithdrawals'],
+            })
+          }
+
+          const refBundle = await api.getReferrals()
+          if (refBundle && typeof refBundle === 'object') {
+            const patch: Partial<AppStore> = {}
+            if (Array.isArray(refBundle.referrals)) {
+              patch.referrals = refBundle.referrals
+            }
+            if (refBundle.refDailyLog && typeof refBundle.refDailyLog === 'object') {
+              patch.refDailyLog = refBundle.refDailyLog
+            }
+            if (refBundle.refReward && typeof refBundle.refReward === 'object') {
+              patch.refReward = {
+                month: String(refBundle.refReward.month ?? ''),
+                count: Number(refBundle.refReward.count ?? 0),
+                claimed: !!refBundle.refReward.claimed,
+              }
+            }
+            if (Array.isArray(refBundle.recentSales)) {
+              patch.realSales = refBundle.recentSales
+            }
+            if (Object.keys(patch).length > 0) set(patch)
+          }
+
           if (get()._adminVerified) {
             await get().syncAdminData()
           }
@@ -475,21 +495,16 @@ export const useStore = create<AppStore>()(
                 : startParam === 'ru' || startParam === 'lang_ru' ? 'ru'
                 : detectedLang)
 
+            const prev = get().user
             set({
               lang: initialLang,
               langUserSet: state.langUserSet,
               user: {
-                ...MOCK_USER,
+                ...(prev && prev.uid === uid ? prev : { ...MOCK_USER, uid }),
                 uid,
-                username: tgUser.username ?? '',
-                full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' '),
-                photo_url: tgUser.photo_url,
-                balance: 0,
-                spent: 0,
-                purchases: 0,
-                ref_earned: 0,
-                ref_count: 0,
-                ref_balance: 0,
+                username: tgUser.username ?? prev?.username ?? '',
+                full_name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || prev?.full_name || '',
+                photo_url: tgUser.photo_url ?? prev?.photo_url,
               },
             })
 
@@ -680,6 +695,10 @@ export const useStore = create<AppStore>()(
 
       updateBalance: (delta) => {
         if (!isValidAmount(Math.abs(delta), 0.001, 100_000)) return
+        if (api.isEnabled()) {
+          void get().refreshUser()
+          return
+        }
         if (!rateLimit('updateBalance', 10, 60_000)) {
           audit('rate_limited', get().user?.uid, { action: 'updateBalance', delta })
           return
@@ -743,6 +762,7 @@ export const useStore = create<AppStore>()(
       creditRefBalance: (amount) => {
         if (!isValidAmount(amount, 0.01, 10_000)) return
         audit('ref_credit', get().user?.uid, { amount })
+        if (api.isEnabled()) return
         set((s) => ({
           user: s.user ? { ...s.user, ref_balance: (s.user.ref_balance) + amount } : null,
         }))
@@ -750,6 +770,7 @@ export const useStore = create<AppStore>()(
 
       spendRefBalance: (amount) => {
         if (!isValidAmount(amount, 0.01, 10_000)) return
+        if (api.isEnabled()) return
         const balance = get().user?.ref_balance ?? 0
         if (amount > balance + 0.001) {
           audit('ref_spend_insufficient', get().user?.uid, { amount, balance })
@@ -785,7 +806,26 @@ export const useStore = create<AppStore>()(
           ),
         })),
 
-      logDailyRef: (date, count = 1) =>
+      logDailyRef: (date, count = 1) => {
+        if (api.isEnabled() && get().user?.uid) {
+          void api.refReward({ kind: 'daily', date, count }).then((res) => {
+            if (!res || typeof res !== 'object') return
+            const r = res as { ref_balance?: number; ref_earned?: number; ref_count?: number }
+            set((s) => ({
+              refDailyLog: { ...s.refDailyLog, [date]: (s.refDailyLog[date] ?? 0) + count },
+              refReward: { ...s.refReward, count: s.refReward.count + count },
+              user: s.user
+                ? {
+                    ...s.user,
+                    ref_balance: Number(r.ref_balance ?? s.user.ref_balance),
+                    ref_earned: Number(r.ref_earned ?? s.user.ref_earned),
+                    ref_count: Number(r.ref_count ?? s.user.ref_count),
+                  }
+                : null,
+            }))
+          })
+          return
+        }
         set((s) => ({
           refDailyLog: { ...s.refDailyLog, [date]: (s.refDailyLog[date] ?? 0) + count },
           refReward: { ...s.refReward, count: s.refReward.count + count },
@@ -795,27 +835,44 @@ export const useStore = create<AppStore>()(
             ref_earned: s.user.ref_earned + 5 * count,
             ref_count: s.user.ref_count + count,
           } : null,
-        })),
+        }))
+      },
 
-      checkAndResetMonthlyReward: () =>
-        set((s) => {
-          const currentMonth = new Date().toISOString().slice(0, 7)
-          const { refReward } = s
-          if (!refReward.month || refReward.month < currentMonth) {
-            return { refReward: { month: currentMonth, count: 0, claimed: false } }
-          }
-          if (refReward.count >= 10 && !refReward.claimed) {
-            return {
-              refReward: { ...refReward, claimed: true },
-              user: s.user ? {
-                ...s.user,
-                ref_balance: s.user.ref_balance + 100,
-                ref_earned: s.user.ref_earned + 100,
-              } : null,
-            }
-          }
-          return {}
-        }),
+      checkAndResetMonthlyReward: () => {
+        const s = get()
+        const currentMonth = new Date().toISOString().slice(0, 7)
+        const { refReward } = s
+        if (!refReward.month || refReward.month < currentMonth) {
+          set({ refReward: { month: currentMonth, count: 0, claimed: false } })
+          return
+        }
+        if (refReward.count < 10 || refReward.claimed) return
+        if (api.isEnabled()) {
+          void api.refReward({ kind: 'monthly_bonus' }).then((res) => {
+            if (!res || typeof res !== 'object') return
+            const r = res as { ref_balance?: number; ref_earned?: number }
+            set((st) => ({
+              refReward: { ...st.refReward, claimed: true },
+              user: st.user
+                ? {
+                    ...st.user,
+                    ref_balance: Number(r.ref_balance ?? st.user.ref_balance),
+                    ref_earned: Number(r.ref_earned ?? st.user.ref_earned),
+                  }
+                : null,
+            }))
+          })
+          return
+        }
+        set({
+          refReward: { ...refReward, claimed: true },
+          user: s.user ? {
+            ...s.user,
+            ref_balance: s.user.ref_balance + 100,
+            ref_earned: s.user.ref_earned + 100,
+          } : null,
+        })
+      },
 
       cancelPendingDeposits: async () => {
         const pending = get().orders.filter(
@@ -985,7 +1042,9 @@ export const useStore = create<AppStore>()(
           }
           if (Array.isArray(ordersRes)) {
             const mapped = (ordersRes as Record<string, unknown>[]).map(mapServerOrder)
-            patch.orders = mergeServerOrders(get().orders, mapped)
+            patch.orders = mapped.sort(
+              (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
+            )
           }
           if (Array.isArray(usersRes)) {
             const byUid: Record<number, { username: string; full_name: string }> = {}
@@ -1011,11 +1070,11 @@ export const useStore = create<AppStore>()(
           }
           if (productsRes && typeof productsRes === 'object') {
             const pr = productsRes as { products?: Product[]; categories?: Category[]; pinned?: number[] }
-            if (pr.products?.length) patch.products = pr.products
-            if (pr.categories?.length) patch.categories = pr.categories
-            if (pr.pinned) patch.pinnedProductIds = pr.pinned
+            if (Array.isArray(pr.products)) patch.products = pr.products
+            if (Array.isArray(pr.categories)) patch.categories = pr.categories
+            if (Array.isArray(pr.pinned)) patch.pinnedProductIds = pr.pinned
           }
-          if (Array.isArray(logsRes) && logsRes.length > 0) {
+          if (Array.isArray(logsRes)) {
             patch.logs = logsRes as PaymentLog[]
           }
           if (Array.isArray(broadcastsRes)) {
@@ -1028,10 +1087,12 @@ export const useStore = create<AppStore>()(
       // ─── ADMIN ─────────────────────────────────────────
       setCryptoAddress: (network, address) => {
         set((s) => ({ cryptoAddresses: { ...s.cryptoAddresses, [network]: address } }))
+        void get().persistAdminSettings({ addresses: get().cryptoAddresses })
       },
 
       setSiteLink: (key, value) => {
         set((s) => ({ siteLinks: { ...s.siteLinks, [key]: value } }))
+        void get().persistAdminSettings({ siteLinks: get().siteLinks })
       },
 
       setQrOverride: (network, dataUri) => {
@@ -1099,7 +1160,7 @@ export const useStore = create<AppStore>()(
           }
         })
         if (api.isEnabled() && get()._adminVerified) {
-          void api.adminPatchOrder(id, { status })
+          void api.adminPatchOrder(id, { status }).then(() => get().syncAdminData())
         }
       },
 
@@ -1132,6 +1193,11 @@ export const useStore = create<AppStore>()(
             ],
           }
         })
+        if (api.isEnabled() && get()._adminVerified) {
+          void api.adminPatchOrder(id, { status: 'completed', delivery_data: deliveryData }).then(
+            () => get().syncAdminData(),
+          )
+        }
       },
 
       resolvePostDelivery: (orderId, choice) => {
@@ -1185,6 +1251,16 @@ export const useStore = create<AppStore>()(
         }))
         // 2) привязываем данные к заказу и помечаем completed (это уже умеет setOrderDelivery)
         get().setOrderDelivery(orderId, nextItem)
+        if (api.isEnabled() && get()._adminVerified) {
+          const updated = get().products.find((x) => x.id === product.id)
+          if (updated) {
+            void api.adminUpsertProduct({
+              ...updated,
+              autoItems: updated.autoItems,
+              pinned: get().pinnedProductIds.includes(updated.id),
+            }).then(() => get().syncAdminData())
+          }
+        }
         return true
       },
 
@@ -1194,7 +1270,9 @@ export const useStore = create<AppStore>()(
           return { products: exists ? s.products.map((x) => x.id === p.id ? p : x) : [...s.products, p] }
         })
         if (api.isEnabled() && get()._adminVerified) {
-          api.adminUpsertProduct({ ...p, pinned: get().pinnedProductIds.includes(p.id) })
+          void api.adminUpsertProduct({ ...p, pinned: get().pinnedProductIds.includes(p.id) }).then(
+            () => get().syncAdminData(),
+          )
         }
       },
 
@@ -1203,14 +1281,22 @@ export const useStore = create<AppStore>()(
         if (api.isEnabled() && get()._adminVerified) api.adminDeleteProduct(id)
       },
 
-      upsertCategory: (c) =>
+      upsertCategory: (c) => {
         set((s) => {
           const exists = s.categories.some((x) => x.id === c.id)
           return { categories: exists ? s.categories.map((x) => x.id === c.id ? c : x) : [...s.categories, c] }
-        }),
+        })
+        if (api.isEnabled() && get()._adminVerified) {
+          void api.adminUpsertCategory(c).then(() => get().syncAdminData())
+        }
+      },
 
-      deleteCategory: (id) =>
-        set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
+      deleteCategory: (id) => {
+        set((s) => ({ categories: s.categories.filter((c) => c.id !== id) }))
+        if (api.isEnabled() && get()._adminVerified) {
+          void api.adminDeleteCategory(id).then(() => get().syncAdminData())
+        }
+      },
 
       addLog: (log) => {
         const entry: PaymentLog = { id: Date.now(), ...log }
@@ -1297,21 +1383,12 @@ export const useStore = create<AppStore>()(
     }),
     {
       name: 'fanvue-app-v10',
-      version: 1,
+      version: 2,
       migrate: (state: unknown) => {
         const s = state as Partial<AppStore>
         if (s.user) {
-          s.user = {
-            ...MOCK_USER,
-            ...s.user,
-            balance: 0,
-            spent: 0,
-            purchases: 0,
-            ref_balance: 0,
-          }
+          s.user = { ...MOCK_USER, ...s.user }
         }
-        s.orders = []
-        s.notifications = []
         s.cryptoAddresses = { ...CONFIG.addresses, ...(s.cryptoAddresses ?? {}) } as typeof s.cryptoAddresses
         if (s.siteLinks) {
           s.siteLinks = { ...defaultSiteLinks(), ...s.siteLinks }
@@ -1328,12 +1405,12 @@ export const useStore = create<AppStore>()(
               full_name: s.user.full_name,
               photo_url: s.user.photo_url,
               lang: s.user.lang,
-              balance: 0,
-              spent: 0,
-              purchases: 0,
-              ref_earned: 0,
-              ref_count: 0,
-              ref_balance: 0,
+              balance: s.user.balance,
+              spent: s.user.spent,
+              purchases: s.user.purchases,
+              ref_earned: s.user.ref_earned,
+              ref_count: s.user.ref_count,
+              ref_balance: s.user.ref_balance,
               created: s.user.created,
             }
           : null,
@@ -1348,6 +1425,8 @@ export const useStore = create<AppStore>()(
         refDailyLog: s.refDailyLog,
         supportForwardedOrders: s.supportForwardedOrders,
         pinnedProductIds: s.pinnedProductIds,
+        products: s.products,
+        categories: s.categories,
         supportUnread: s.supportUnread,
         referrals: s.referrals,
         realSales: s.realSales,

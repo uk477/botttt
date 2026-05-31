@@ -1,4 +1,5 @@
 import { orders, users, adminLogs, type OrderRow } from "./db.js";
+import { processReferralPurchase } from "./referrals.js";
 import {
   adminDepositConfirmed,
   adminPaymentConfirmed,
@@ -89,6 +90,11 @@ export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolea
       time,
     },
   );
+
+  const completed = orders.get(order.id);
+  if (completed?.status === "completed" && completed.kind === "buy") {
+    processReferralPurchase(completed);
+  }
 
   return true;
 }

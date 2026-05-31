@@ -36,7 +36,10 @@ export default function AdminOrders() {
   const syncAdminData = useStore((s) => s.syncAdminData)
 
   useEffect(() => {
-    syncAdminData()
+    void syncAdminData()
+    if (!api.isEnabled()) return
+    const id = window.setInterval(() => void syncAdminData(), 15_000)
+    return () => window.clearInterval(id)
   }, [syncAdminData])
 
   // Sync draft when opening a different order

@@ -60,8 +60,8 @@ export default function OrderPayOverlay({ order, onClose }: Props) {
           >
             <PayPanel
               orderId={order.id}
-              amountUsd={order.amount}
               uniqueAmount={order.amount}
+              amountCrypto={order.amount_crypto}
               createdAt={order.created}
               expiresAt={order.expires_at}
               network={cryptoOpt.id}

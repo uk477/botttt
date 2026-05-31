@@ -25,10 +25,19 @@ export interface UserNotifyPayload {
   reason?: string
 }
 
+/** Telegram Bot API message entity (UTF-16 offsets). */
+export type TelegramMessageEntity = {
+  type: 'bold' | 'italic' | 'blockquote'
+  offset: number
+  length: number
+}
+
 export interface BuiltUserNotify {
   text: string
   /** Omit or empty string — message without inline button */
   buttonText?: string
+  /** When set, send without parse_mode — native quote/blockquote in Telegram */
+  entities?: TelegramMessageEntity[]
 }
 
 const BRAND = 'Fanvue Market'
@@ -44,6 +53,30 @@ function truncate(s: string, max: number): string {
   const t = s.trim()
   if (t.length <= max) return t
   return t.slice(0, max - 1) + '…'
+}
+
+/** Support DM: bold headline + blockquote with orange bar (Telegram native quote). */
+export function buildSupportReplyNotify(
+  preview: string,
+  lang: NotifyLang = 'ru',
+): BuiltUserNotify {
+  const answer = truncate(preview, 300)
+  const headline = t(
+    lang,
+    'Новое сообщение от команды поддержки:',
+    'New message from support:',
+  )
+  const quote = `${answer}»`
+  const text = `${headline}\n\n${quote}`
+  const headlineLen = headline.length
+  const quoteOffset = headlineLen + 2
+  return {
+    text,
+    entities: [
+      { type: 'bold', offset: 0, length: headlineLen },
+      { type: 'blockquote', offset: quoteOffset, length: quote.length },
+    ],
+  }
 }
 
 function t(lang: NotifyLang, ru: string, en: string): string {
@@ -187,19 +220,18 @@ export function buildUserNotification(
   switch (kind) {
     case 'support_reply': {
       const preview = params.preview?.trim()
-      const rows = preview
-        ? [`<blockquote>${escapeHtml(truncate(preview, 320))}</blockquote>`]
-        : []
-      return {
-        text: userMessage(
+      if (!preview) {
+        const headline = t(
           lang,
-          'Ответ поддержки',
-          'Support reply',
-          rows,
-          'Продолжите диалог в разделе «Поддержка» в приложении.',
-          'Continue the conversation in Support inside the app.',
-        ),
+          'Новое сообщение от команды поддержки:',
+          'New message from support:',
+        )
+        return {
+          text: headline,
+          entities: [{ type: 'bold', offset: 0, length: headline.length }],
+        }
       }
+      return buildSupportReplyNotify(preview, lang)
     }
 
     case 'order_created':

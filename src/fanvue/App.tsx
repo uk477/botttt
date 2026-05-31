@@ -30,6 +30,7 @@ const AdminPhotos = lazy(() => import('./admin/AdminPhotos'))
 const AdminMore = lazy(() => import('./admin/AdminMore'))
 const AdminReferrals = lazy(() => import('./admin/AdminReferrals'))
 const AdminDeposits = lazy(() => import('./admin/AdminDeposits'))
+const AdminSales = lazy(() => import('./admin/AdminSales'))
 const AdminCustomize = lazy(() => import('./admin/AdminCustomize'))
 import { useStore } from './store'
 import { useTelegram } from './hooks/useTelegram'
@@ -162,6 +163,7 @@ function AppInner() {
               <Route path="more" element={<AdminMore />} />
               <Route path="referrals" element={<AdminReferrals />} />
               <Route path="deposits" element={<AdminDeposits />} />
+              <Route path="sales" element={<AdminSales />} />
               <Route path="customize" element={<AdminCustomize />} />
             </Route>
           </Routes>

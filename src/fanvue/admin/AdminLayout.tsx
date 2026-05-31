@@ -32,6 +32,7 @@ const QUICK = [
   { path: '/admin', label: 'Обзор' },
   { path: '/admin/orders', label: 'Заказы' },
   { path: '/admin/deposits', label: 'Пополнения' },
+  { path: '/admin/sales', label: 'Оплаченные лоты' },
   { path: '/admin/products', label: 'Товары' },
   { path: '/admin/users', label: 'Клиенты' },
   { path: '/admin/support', label: 'Поддержка' },
@@ -56,6 +57,7 @@ const ROUTE_TITLE: Record<string, string> = {
   '/admin/more': 'Ещё',
   '/admin/referrals': 'Реф. выводы',
   '/admin/deposits': 'Пополнения',
+  '/admin/sales': 'Оплаченные лоты',
   '/admin/customize': 'Контент и ссылки',
 }
 

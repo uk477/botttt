@@ -78,16 +78,19 @@ export async function sendMessage(
   chatId: number | string,
   text: string,
   parseMode: "HTML" | "Markdown" = "HTML",
+  entities?: import("../shared/telegramTemplates.js").TelegramMessageEntity[],
 ): Promise<boolean> {
   try {
+    const body: Record<string, unknown> = { chat_id: chatId, text };
+    if (entities?.length) {
+      body.entities = entities;
+    } else {
+      body.parse_mode = parseMode;
+    }
     const res = await fetch(`${TG_API}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: parseMode,
-      }),
+      body: JSON.stringify(body),
     });
     const data = (await res.json()) as { ok: boolean; description?: string };
     if (!data.ok) {
@@ -284,7 +287,7 @@ export async function notifyUserTemplated(
 ): Promise<boolean> {
   // Покупателю — только текст, без inline-кнопок (Оплатить / Открыть приложение).
   if (kind === "order_created" || kind === "deposit_created") return true;
-  const { text } = buildUserNotification(kind, params, lang);
-  if (!text?.trim()) return true;
-  return sendMessage(chatId, text);
+  const built = buildUserNotification(kind, params, lang);
+  if (!built.text?.trim()) return true;
+  return sendMessage(chatId, built.text, "HTML", built.entities);
 }

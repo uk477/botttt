@@ -240,7 +240,7 @@ export default function PaymentWaiting({
           <span style={{ fontSize: 20, marginLeft: 6, opacity: 0.85 }}>{crypto.symbol}</span>
         </motion.div>
         <div className="t-xs t-muted">
-          ≈ ${amountUsd.toFixed(2)} USD
+          ${uniqueAmount.toFixed(2)} USD
           {rates && <span style={{ marginLeft: 8, color: 'var(--brand)', fontSize: 10 }}>● LIVE</span>}
         </div>
       </div>

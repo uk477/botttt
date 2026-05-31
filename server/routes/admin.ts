@@ -17,6 +17,7 @@ import {
   users,
   settings,
   refWithdrawals,
+  refDailyStats,
   products,
   categories,
   broadcasts,
@@ -30,6 +31,7 @@ import {
 } from "../db.js";
 import { ENV } from "../env.js";
 import { finalizeCompletedOrder } from "../orderFinalize.js";
+import { mapServerOrder } from "../../shared/orderMap.js";
 
 const router = Router();
 
@@ -109,12 +111,23 @@ router.get("/api/products", (_req: Request, res: Response) => {
   res.json({ products: prods, categories: cats, pinned });
 });
 
+function mapOrderForClient(o: import("../db.js").OrderRow) {
+  return mapServerOrder(o as unknown as Record<string, unknown>);
+}
+
 // ── Admin Orders ─────────────────────────────────────────────────
 router.get("/api/admin/orders", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   orders.expireOld();
-  const all = req.query.all === "1" ? orders.getAll() : orders.getAllPending();
-  res.json(all);
+  const rows = req.query.all === "1" ? orders.getAll() : orders.getAllPending();
+  res.json(rows.map(mapOrderForClient));
+});
+
+router.get("/api/admin/sales", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  orders.expireOld();
+  const rows = stats.allCompletedOrders();
+  res.json(rows.map(mapOrderForClient));
 });
 
 router.patch("/api/admin/order/:id", (req: Request, res: Response) => {
@@ -122,11 +135,17 @@ router.patch("/api/admin/order/:id", (req: Request, res: Response) => {
   const id = req.params.id as string;
   const order = orders.get(id);
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
-  const { status } = req.body;
+  const body = req.body as { status?: string; tx_hash?: string; delivery_data?: string };
+  const delivery =
+    typeof body.delivery_data === "string" ? body.delivery_data.trim().slice(0, 8000) : "";
+  if (delivery) {
+    orders.setDelivery(order.id, delivery);
+  }
+  const { status } = body;
   if (status === "paid") {
-    orders.markPaid(order.id, req.body.tx_hash || "manual");
-  } else if (status === "completed") {
-    finalizeCompletedOrder(order, req.body.tx_hash || "manual");
+    orders.markPaid(order.id, body.tx_hash || "manual");
+  } else if (status === "completed" && !delivery) {
+    finalizeCompletedOrder(order, body.tx_hash || "manual");
   } else if (status === "expired") {
     orders.expire(order.id);
   }
@@ -179,6 +198,23 @@ router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
   const updated = users.credit(uid, amount);
   res.json({ ok: true, balance: updated?.balance ?? 0 });
+});
+
+router.post("/api/admin/user/:uid/ref-balance", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const uid = Number(req.params.uid);
+  if (!uid || isNaN(uid)) { res.status(400).json({ error: "Invalid uid" }); return; }
+  const { amount } = req.body as { amount?: number };
+  if (!amount || typeof amount !== "number" || amount <= 0 || amount > 10000) {
+    res.status(400).json({ error: "Invalid amount" }); return;
+  }
+  const updated = users.creditRef(uid, amount);
+  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+  res.json({
+    ok: true,
+    ref_balance: updated.ref_balance,
+    ref_earned: updated.ref_earned,
+  });
 });
 
 // ── Admin Products ─────────────────────────────────────────────────
@@ -272,6 +308,14 @@ router.post("/api/admin/category", (req: Request, res: Response) => {
     active: b.active !== false,
     sort_order: Number(b.sort_order) || 0,
   });
+  res.json({ ok: true });
+});
+
+router.delete("/api/admin/category/:id", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const id = Number(req.params.id);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+  categories.delete(id);
   res.json({ ok: true });
 });
 
@@ -714,7 +758,65 @@ router.get("/api/ref/withdrawals", (req: Request, res: Response) => {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-  res.json(refWithdrawals.getByUid(user.id));
+  const rows = refWithdrawals.getByUid(user.id);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      uid: r.uid,
+      amount: r.amount,
+      network: r.network,
+      address: r.address,
+      status: r.status,
+      createdAt: r.created_at,
+      completedAt: r.completed_at ?? undefined,
+      txid: r.txid ?? undefined,
+      rejectReason: r.reject_reason ?? undefined,
+    })),
+  );
+});
+
+const refRewardLimiter = rateLimit({ windowMs: 60_000, max: 20 });
+
+router.post("/api/ref/reward", refRewardLimiter, (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const user = verifyInitData(initData);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const body = req.body as { kind?: string; date?: string; count?: number };
+  const kind = body.kind;
+  if (kind === "daily") {
+    res.status(400).json({ error: "Referral rewards are credited automatically on purchase" });
+    return;
+  }
+
+  if (kind === "monthly_bonus") {
+    const month = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" }).slice(0, 7);
+    const count = refDailyStats.sumForMonth(user.id, month);
+    if (count < 10) {
+      res.status(400).json({ error: "Need 10 qualifying referrals this month" });
+      return;
+    }
+    if (refDailyStats.isMonthlyClaimed(user.id, month)) {
+      const row = users.get(user.id);
+      res.json({
+        ok: true,
+        already: true,
+        ref_balance: row?.ref_balance ?? 0,
+        ref_earned: row?.ref_earned ?? 0,
+      });
+      return;
+    }
+    const updated = users.accrueRef(user.id, 100, 0);
+    refDailyStats.markMonthlyClaimed(user.id, month);
+    res.json({
+      ok: true,
+      ref_balance: updated?.ref_balance ?? 0,
+      ref_earned: updated?.ref_earned ?? 0,
+    });
+    return;
+  }
+
+  res.status(400).json({ error: "Invalid kind" });
 });
 
 // ── Admin Ref Withdrawals ────────────────────────────────────────

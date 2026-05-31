@@ -132,6 +132,16 @@ export const api = {
   sendMessage:    (text: string)     => post('/api/support/message', { text }),
 
   refWithdraw:    (b: object)        => post('/api/ref/withdraw', b),
+  refWithdrawals: ()                 => get('/api/ref/withdrawals'),
+  refReward:      (b: object)        => post('/api/ref/reward', b),
+  getReferrals:   ()                 => get<{
+    referrals: import('./types').Referral[]
+    refDailyLog: Record<string, number>
+    refReward: { month: string; count: number; claimed: boolean }
+    recentSales: import('./types').RealSale[]
+  }>('/api/referrals'),
+  adminCreditRef: (uid: number, amount: number) =>
+    post(`/api/admin/user/${uid}/ref-balance`, { amount }),
 
   adminOrders:           ()                        => get('/api/admin/orders?all=1'),
   adminPatchOrder:       (id: string, b: object)   => patch(`/api/admin/order/${id}`, b),
@@ -148,6 +158,8 @@ export const api = {
   adminSetSettings:      (b: object)               => post<{ ok: boolean }>('/api/admin/settings', b),
   adminGetProducts:      ()                        => get<{ products: unknown[]; categories: unknown[]; pinned: number[] }>('/api/admin/products'),
   adminUpsertProduct:    (b: object)               => post('/api/admin/product', b),
+  adminUpsertCategory:   (b: object)               => post('/api/admin/category', b),
+  adminDeleteCategory:   (id: number)              => del(`/api/admin/category/${id}`),
   adminDeleteProduct:    (id: number)              => del(`/api/admin/product/${id}`),
   adminPinProduct:       (id: number)              => post(`/api/admin/product/${id}/pin`, {}),
   adminUnpinProduct:     (id: number)              => del(`/api/admin/product/${id}/pin`),

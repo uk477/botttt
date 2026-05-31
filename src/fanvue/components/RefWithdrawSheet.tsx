@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type CSSProperties, type PointerEvent } from 'react'
+import { useState, useRef, useEffect, type CSSProperties, type PointerEvent, type TransitionEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
@@ -89,6 +89,14 @@ const STATUS_COLOR: Record<RefWithdrawal['status'], string> = {
   rejected: '#ff5050',
 }
 
+/** Release past this → commit (animate to end if not already there). */
+const SWIPE_COMMIT = 0.8
+/** Already at the end — submit immediately, no extra animation. */
+const SWIPE_AT_END = 0.99
+const SWIPE_ANIM_MS = 260
+const THUMB_W = 58
+const THUMB_PAD = 8
+
 function StatusLabel({ status, lang }: { status: RefWithdrawal['status']; lang: 'ru' | 'en' }) {
   const label =
     status === 'pending'
@@ -138,12 +146,48 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
   const trackRef = useRef<HTMLDivElement>(null)
 
   const swipeProgressRef = useRef(0)
+  const swipeXRef = useRef(0)
+  const isCompletingRef = useRef(false)
+  const submittingRef = useRef(false)
+  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [trackW, setTrackW] = useState(0)
   const [swipeX, setSwipeX] = useState(0)
   const [isSwiping, setIsSwiping] = useState(false)
-  const thumbW = 58
-  const maxX = Math.max(trackW - thumbW - 8, 0)
+  const [isCompleting, setIsCompleting] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const maxX = Math.max(trackW - THUMB_W - THUMB_PAD, 0)
   const swipeProgress = maxX > 0 ? Math.min(swipeX / maxX, 1) : 0
+  const swipeLocked = isSubmitting || isCompleting
+
+  const getMaxX = (width: number) => Math.max(width - THUMB_W - THUMB_PAD, 0)
+
+  const syncSwipe = (x: number, width: number) => {
+    const localMax = getMaxX(width)
+    const pos = Math.min(Math.max(x, 0), localMax)
+    swipeXRef.current = pos
+    swipeProgressRef.current = localMax > 0 ? pos / localMax : 0
+    setSwipeX(pos)
+    return { pos, localMax, progress: swipeProgressRef.current }
+  }
+
+  const resetSwipe = () => {
+    if (completeTimerRef.current) {
+      clearTimeout(completeTimerRef.current)
+      completeTimerRef.current = null
+    }
+    isCompletingRef.current = false
+    setIsCompleting(false)
+    swipeProgressRef.current = 0
+    swipeXRef.current = 0
+    setSwipeX(0)
+  }
+
+  const clearCompleteTimer = () => {
+    if (completeTimerRef.current) {
+      clearTimeout(completeTimerRef.current)
+      completeTimerRef.current = null
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -151,9 +195,10 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       setAmount('')
       setNetwork(null)
       setAddress('')
-      setSwipeX(0)
-      swipeProgressRef.current = 0
+      resetSwipe()
       setIsSwiping(false)
+      setIsSubmitting(false)
+      submittingRef.current = false
     }
   }, [open])
 
@@ -166,6 +211,16 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
     return () => observer.disconnect()
   }, [open, step])
 
+  useEffect(() => {
+    if (step === 'confirm') {
+      resetSwipe()
+      requestAnimationFrame(() => {
+        const w = trackRef.current?.offsetWidth ?? 0
+        if (w > 0) setTrackW(w)
+      })
+    }
+  }, [step])
+
   if (!user) return null
   const balance = user.ref_balance
   const MIN_WITHDRAW = 10
@@ -174,16 +229,23 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
 
   const [addressError, setAddressError] = useState<string | null>(null)
 
-  async function handleSubmit() {
-    if (!network) return
-    if (!isValidAmount(amountNum, MIN_WITHDRAW, balance)) return
+  async function handleSubmit(): Promise<boolean> {
+    if (!network) return false
+    if (!isValidAmount(amountNum, MIN_WITHDRAW, balance)) return false
     const freshBalance = useStore.getState().user?.ref_balance ?? 0
-    if (amountNum > freshBalance) return
+    if (amountNum > freshBalance) return false
     if (!isValidCryptoAddress(address.trim(), network)) {
       setAddressError(lang === 'ru' ? 'Некорректный адрес для выбранной сети' : 'Invalid address for selected network')
-      return
+      return false
     }
-    if (!rateLimit('ref_withdraw', 3, 120_000)) return
+    if (!rateLimit('ref_withdraw', 3, 120_000)) {
+      setAddressError(
+        lang === 'ru'
+          ? 'Слишком частые заявки. Подождите пару минут.'
+          : 'Too many requests. Wait a few minutes.',
+      )
+      return false
+    }
     const sanitizedAddr = sanitizeText(address.trim())
     audit('ref_withdraw', user?.uid, { amount: amountNum, network, address: sanitizedAddr })
 
@@ -204,7 +266,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
               ? 'Не удалось создать заявку. Попробуйте позже.'
               : 'Could not submit withdrawal. Try again later.',
         )
-        return
+        return false
       }
       if (res.id) newId = res.id
       await useStore.getState().refreshUser()
@@ -236,51 +298,101 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       }),
     )
     setStep('done')
+    return true
+  }
+
+  const commitWithdraw = async () => {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setIsSubmitting(true)
+    try {
+      const ok = await handleSubmit()
+      if (!ok) {
+        haptic('error')
+        resetSwipe()
+      }
+    } finally {
+      submittingRef.current = false
+      setIsSubmitting(false)
+    }
+  }
+
+  const finishAnimatedSwipe = () => {
+    if (!isCompletingRef.current || submittingRef.current) return
+    isCompletingRef.current = false
+    setIsCompleting(false)
+    clearCompleteTimer()
+    void commitWithdraw()
+  }
+
+  const animateSwipeToEnd = (width: number) => {
+    const localMax = getMaxX(width)
+    isCompletingRef.current = true
+    setIsCompleting(true)
+    setIsSwiping(false)
+    syncSwipe(localMax, width)
+    haptic('medium')
+    clearCompleteTimer()
+    completeTimerRef.current = setTimeout(finishAnimatedSwipe, SWIPE_ANIM_MS)
   }
 
   const pointerStartRef = useRef<{ id: number; startX: number; startOffset: number; trackW: number } | null>(null)
 
-  function getMaxX(width: number) {
-    return Math.max(width - thumbW - 8, 0)
-  }
-
   function handleSwipePointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (swipeLocked) return
     e.stopPropagation()
     const el = e.currentTarget as HTMLDivElement
-    const width = el.offsetWidth
-    if (width !== trackW) setTrackW(width)
-    try { el.setPointerCapture(e.pointerId) } catch {}
-    pointerStartRef.current = { id: e.pointerId, startX: e.clientX, startOffset: swipeX, trackW: width }
+    const width = el.offsetWidth || trackRef.current?.offsetWidth || 0
+    if (width > 0 && width !== trackW) setTrackW(width)
+    try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+    pointerStartRef.current = {
+      id: e.pointerId,
+      startX: e.clientX,
+      startOffset: swipeXRef.current,
+      trackW: width,
+    }
     setIsSwiping(true)
   }
 
   function handleSwipePointerMove(e: PointerEvent<HTMLDivElement>) {
     const start = pointerStartRef.current
-    if (!start || start.id !== e.pointerId) return
+    if (!start || start.id !== e.pointerId || swipeLocked) return
     e.stopPropagation()
-    const localMax = getMaxX(start.trackW)
-    const next = Math.min(Math.max(start.startOffset + (e.clientX - start.startX), 0), localMax)
-    swipeProgressRef.current = localMax > 0 ? next / localMax : 0
-    setSwipeX(next)
+    if (e.cancelable) e.preventDefault()
+    const next = start.startOffset + (e.clientX - start.startX)
+    syncSwipe(next, start.trackW)
   }
 
   function handleSwipePointerEnd(e: PointerEvent<HTMLDivElement>) {
     const start = pointerStartRef.current
     if (!start || start.id !== e.pointerId) return
     e.stopPropagation()
-    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId) } catch {}
+    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId) } catch { /* ignore */ }
     pointerStartRef.current = null
     setIsSwiping(false)
-    if (swipeProgressRef.current >= 0.6) {
-      const localMax = getMaxX(start.trackW)
-      swipeProgressRef.current = 1
-      setSwipeX(localMax)
-      handleSubmit()
+
+    if (swipeLocked) return
+
+    const { progress, localMax } = syncSwipe(swipeXRef.current, start.trackW)
+
+    if (progress >= SWIPE_COMMIT) {
+      if (progress >= SWIPE_AT_END) {
+        syncSwipe(localMax, start.trackW)
+        void commitWithdraw()
+      } else {
+        animateSwipeToEnd(start.trackW)
+      }
     } else {
-      swipeProgressRef.current = 0
-      setSwipeX(0)
+      resetSwipe()
     }
   }
+
+  function handleThumbTransitionEnd(e: TransitionEvent<HTMLDivElement>) {
+    if (e.propertyName !== 'transform') return
+    finishAnimatedSwipe()
+  }
+
+  useEffect(() => () => clearCompleteTimer(), [])
 
 
   function formatDate(iso: string) {
@@ -865,7 +977,8 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                         WebkitUserSelect: 'none',
                         WebkitTouchCallout: 'none',
                         touchAction: 'none',
-                        cursor: isSwiping ? 'grabbing' : 'grab',
+                        cursor: swipeLocked ? 'default' : isSwiping ? 'grabbing' : 'grab',
+                        opacity: isSubmitting ? 0.65 : 1,
                         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 42px rgba(0,0,0,0.35)',
                       }}
                       onPointerDown={handleSwipePointerDown}
@@ -880,7 +993,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                           left: 0,
                           top: 0,
                           bottom: 0,
-                          width: `${thumbW + 8 + swipeProgress * Math.max(trackW - thumbW - 8, 0)}px`,
+                          width: `${THUMB_W + THUMB_PAD + swipeProgress * Math.max(trackW - THUMB_W - THUMB_PAD, 0)}px`,
                           background: `linear-gradient(90deg, rgba(57,255,99,0.24), rgba(57,255,99,0.72))`,
                           transition: isSwiping ? 'none' : 'width 220ms cubic-bezier(.2,.8,.2,1)',
                           boxShadow: swipeProgress > 0.08 ? '0 0 34px rgba(57,255,99,0.18)' : 'none',
@@ -909,20 +1022,22 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                           fontFamily: DISPLAY,
                           fontSize: 12,
                           fontWeight: 700,
-                          color: swipeProgress > 0.62 ? INK : 'rgba(255,255,255,0.72)',
+                          color: swipeProgress >= SWIPE_COMMIT ? INK : 'rgba(255,255,255,0.72)',
                           textTransform: 'uppercase',
                           letterSpacing: '0.18em',
                           pointerEvents: 'none',
                           paddingLeft: 74,
                           paddingRight: 24,
                           whiteSpace: 'nowrap',
-                          opacity: swipeProgress > 0.9 ? 0 : 1,
+                          opacity: swipeProgress >= SWIPE_AT_END ? 0 : 1,
                           transition: 'color 160ms ease, opacity 160ms ease',
                         }}
                       >
-                        {swipeProgress > 0.62
-                          ? (lang === 'ru' ? 'Отпустите' : 'Release')
-                          : (lang === 'ru' ? 'Тяните вправо' : 'Slide right')}
+                        {isSubmitting
+                          ? (lang === 'ru' ? 'Отправка…' : 'Sending…')
+                          : swipeProgress >= SWIPE_COMMIT
+                            ? (lang === 'ru' ? 'Отпустите' : 'Release')
+                            : (lang === 'ru' ? 'Тяните вправо' : 'Slide right')}
                       </div>
                       {/* thumb */}
                       <div
@@ -930,7 +1045,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                           position: 'absolute',
                           left: 4,
                           top: 4,
-                          width: thumbW,
+                          width: THUMB_W,
                           height: 58,
                           borderRadius: '50%',
                           background: `linear-gradient(180deg, #7dff94, ${GREEN})`,
@@ -940,9 +1055,10 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                           justifyContent: 'center',
                           pointerEvents: 'none',
                           transform: `translateX(${swipeX}px)`,
-                          transition: isSwiping ? 'none' : 'transform 240ms cubic-bezier(.2,.8,.2,1)',
+                          transition: isSwiping ? 'none' : 'transform 260ms cubic-bezier(.2,.8,.2,1)',
                           boxShadow: '0 10px 26px rgba(57,255,99,0.36), inset 0 1px 0 rgba(255,255,255,0.6)',
                         }}
+                        onTransitionEnd={handleThumbTransitionEnd}
                       >
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M5 12h14M13 6l6 6-6 6" />

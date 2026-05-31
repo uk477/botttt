@@ -124,14 +124,26 @@ export default function AdminUsers() {
     setSelected((prev) => prev ? { ...prev, balance: prev.balance + amt } : null)
   }
 
-  const handleCreditRef = () => {
+  const handleCreditRef = async () => {
     const amt = parseFloat(refAmt)
     if (!amt || amt <= 0 || !selected?.isReal) return
-    creditRefBalance(amt)
+    if (api.isEnabled()) {
+      const res = await api.adminCreditRef(selected.uid, amt)
+      if (!res || typeof res !== 'object' || !(res as { ok?: boolean }).ok) {
+        toast.show(lang === 'ru' ? 'Ошибка сервера' : 'Server error', 'error')
+        return
+      }
+      await syncAdminData()
+      await refreshUser()
+      const rb = Number((res as { ref_balance?: number }).ref_balance)
+      setSelected((prev) => prev ? { ...prev, ref_balance: Number.isFinite(rb) ? rb : prev.ref_balance + amt } : null)
+    } else {
+      creditRefBalance(amt)
+      setSelected((prev) => prev ? { ...prev, ref_balance: prev.ref_balance + amt } : null)
+    }
     haptic('success')
     toast.show(`+$${amt.toFixed(2)} зачислено на реф. баланс`, 'success')
     setRefAmt('')
-    setSelected((prev) => prev ? { ...prev, ref_balance: prev.ref_balance + amt } : null)
   }
 
   const initials = (name: string) => name.split(' ').map((p) => p[0]?.toUpperCase() ?? '').slice(0, 2).join('')

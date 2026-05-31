@@ -50,6 +50,7 @@ for (const col of [
   { name: "product_id", ddl: "INTEGER" },
   { name: "product_title", ddl: "TEXT" },
   { name: "quantity", ddl: "INTEGER" },
+  { name: "delivery_data", ddl: "TEXT" },
 ] as const) {
   const has = (db.prepare("PRAGMA table_info(orders)").all() as { name: string }[]).some(
     (c) => c.name === col.name,
@@ -98,6 +99,33 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS referrals (
+    referred_uid   INTEGER PRIMARY KEY,
+    referrer_uid   INTEGER NOT NULL,
+    joined_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    purchase_count INTEGER NOT NULL DEFAULT 0,
+    total_spent    REAL NOT NULL DEFAULT 0,
+    first_purchase_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_uid);
+
+  CREATE TABLE IF NOT EXISTS referral_rewards (
+    order_id       TEXT PRIMARY KEY,
+    referrer_uid   INTEGER NOT NULL,
+    referred_uid   INTEGER NOT NULL,
+    amount         REAL NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS ref_daily_stats (
+    referrer_uid INTEGER NOT NULL,
+    day          TEXT NOT NULL,
+    count        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (referrer_uid, day)
+  );
+`);
+
 export interface OrderRow {
   id: string;
   uid: number;
@@ -115,6 +143,7 @@ export interface OrderRow {
   product_id: number | null;
   product_title: string | null;
   quantity: number | null;
+  delivery_data: string | null;
 }
 
 const stmts = {
@@ -136,6 +165,10 @@ const stmts = {
   markCompleted: db.prepare(`
     UPDATE orders SET status = 'completed', completed_at = datetime('now')
     WHERE id = @id AND status = 'paid'
+  `),
+  setDelivery: db.prepare(`
+    UPDATE orders SET delivery_data = @delivery_data, status = 'completed', completed_at = COALESCE(completed_at, datetime('now'))
+    WHERE id = @id
   `),
   expireOld: db.prepare(`
     UPDATE orders SET status = 'expired'
@@ -164,6 +197,13 @@ const userStmts = {
   creditRefBalance: db.prepare(
     `UPDATE users SET ref_balance = ref_balance + @amount WHERE uid = @uid`,
   ),
+  accrueRef: db.prepare(`
+    UPDATE users SET
+      ref_balance = ref_balance + @amount,
+      ref_earned = ref_earned + @amount,
+      ref_count = ref_count + @count
+    WHERE uid = @uid
+  `),
   debitPurchase: db.prepare(`
     UPDATE users SET
       balance = balance - @amount,
@@ -306,6 +346,16 @@ export const users = {
     if (r.changes === 0) return null;
     return userStmts.get.get(uid) as UserRow;
   },
+  creditRef(uid: number, amount: number): UserRow | undefined {
+    userStmts.upsert.run({ uid, username: null, full_name: null });
+    userStmts.creditRefBalance.run({ uid, amount });
+    return userStmts.get.get(uid) as UserRow;
+  },
+  accrueRef(uid: number, amount: number, count = 0): UserRow | undefined {
+    userStmts.upsert.run({ uid, username: null, full_name: null });
+    userStmts.accrueRef.run({ uid, amount, count });
+    return userStmts.get.get(uid) as UserRow;
+  },
 };
 
 export const orders = {
@@ -350,6 +400,9 @@ export const orders = {
   markCompleted(id: string) {
     stmts.markCompleted.run({ id });
   },
+  setDelivery(id: string, deliveryData: string) {
+    stmts.setDelivery.run({ id, delivery_data: deliveryData });
+  },
   expire(id: string) {
     stmts.updateStatus.run({ id, status: "expired" });
   },
@@ -367,6 +420,115 @@ export const orders = {
   },
   expireOld() {
     return stmts.expireOld.run();
+  },
+  hasCompletedBuy(uid: number): boolean {
+    const row = db
+      .prepare(
+        `SELECT 1 FROM orders WHERE uid = ? AND kind = 'buy' AND status = 'completed' LIMIT 1`,
+      )
+      .get(uid) as { 1: number } | undefined;
+    return !!row;
+  },
+  recentCompletedBuys(limit = 30): OrderRow[] {
+    return db
+      .prepare(
+        `SELECT * FROM orders WHERE kind = 'buy' AND status = 'completed'
+         ORDER BY COALESCE(completed_at, paid_at, created_at) DESC LIMIT ?`,
+      )
+      .all(limit) as OrderRow[];
+  },
+};
+
+const referralStmts = {
+  link: db.prepare(`
+    INSERT INTO referrals (referred_uid, referrer_uid) VALUES (@referred_uid, @referrer_uid)
+  `),
+  getByReferred: db.prepare(`SELECT * FROM referrals WHERE referred_uid = ?`),
+  listByReferrer: db.prepare(
+    `SELECT * FROM referrals WHERE referrer_uid = ? ORDER BY joined_at DESC LIMIT 200`,
+  ),
+  recordPurchase: db.prepare(`
+    UPDATE referrals SET
+      purchase_count = purchase_count + 1,
+      total_spent = total_spent + @amount,
+      first_purchase_at = COALESCE(first_purchase_at, datetime('now'))
+    WHERE referred_uid = @referred_uid
+  `),
+  insertReward: db.prepare(`
+    INSERT INTO referral_rewards (order_id, referrer_uid, referred_uid, amount)
+    VALUES (@order_id, @referrer_uid, @referred_uid, @amount)
+  `),
+  hasReward: db.prepare(`SELECT 1 FROM referral_rewards WHERE order_id = ?`),
+  incDaily: db.prepare(`
+    INSERT INTO ref_daily_stats (referrer_uid, day, count) VALUES (@referrer_uid, @day, 1)
+    ON CONFLICT(referrer_uid, day) DO UPDATE SET count = count + 1
+  `),
+  dailyLog: db.prepare(
+    `SELECT day, count FROM ref_daily_stats WHERE referrer_uid = ? ORDER BY day DESC LIMIT 400`,
+  ),
+  dailySumMonth: db.prepare(`
+    SELECT COALESCE(SUM(count), 0) AS total FROM ref_daily_stats
+    WHERE referrer_uid = ? AND day LIKE @month || '%'
+  `),
+};
+
+export interface ReferralRow {
+  referred_uid: number;
+  referrer_uid: number;
+  joined_at: string;
+  purchase_count: number;
+  total_spent: number;
+  first_purchase_at: string | null;
+}
+
+export const referrals = {
+  link(referrerUid: number, referredUid: number) {
+    try {
+      referralStmts.link.run({ referrer_uid: referrerUid, referred_uid: referredUid });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  getByReferred(referredUid: number): ReferralRow | undefined {
+    return referralStmts.getByReferred.get(referredUid) as ReferralRow | undefined;
+  },
+  listByReferrer(referrerUid: number): ReferralRow[] {
+    return referralStmts.listByReferrer.all(referrerUid) as ReferralRow[];
+  },
+  recordPurchase(referredUid: number, amount: number) {
+    referralStmts.recordPurchase.run({ referred_uid: referredUid, amount });
+  },
+};
+
+export const referralRewards = {
+  has(orderId: string): boolean {
+    return !!referralStmts.hasReward.get(orderId);
+  },
+  insert(r: { order_id: string; referrer_uid: number; referred_uid: number; amount: number }) {
+    referralStmts.insertReward.run(r);
+  },
+};
+
+export const refDailyStats = {
+  increment(referrerUid: number, day: string) {
+    referralStmts.incDaily.run({ referrer_uid: referrerUid, day });
+  },
+  logForUser(referrerUid: number): Record<string, number> {
+    const rows = referralStmts.dailyLog.all(referrerUid) as { day: string; count: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.day] = r.count;
+    return out;
+  },
+  sumForMonth(referrerUid: number, month: string): number {
+    const row = referralStmts.dailySumMonth.get(referrerUid, month) as { total: number } | undefined;
+    return row?.total ?? 0;
+  },
+  isMonthlyClaimed(referrerUid: number, month: string): boolean {
+    return settings.get(`ref_monthly_claimed:${referrerUid}:${month}`) === "1";
+  },
+  markMonthlyClaimed(referrerUid: number, month: string) {
+    settings.set(`ref_monthly_claimed:${referrerUid}:${month}`, "1");
   },
 };
 
