@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
@@ -11,6 +11,7 @@ import CryptoLogo from './CryptoLogo'
 import DeliveryBlock, { ManualDeliveryBlock } from './DeliveryBlock'
 import { isPendingCryptoInvoice, isPaymentWindowOpen } from '../utils/pendingOrder'
 import { resolveOrderProductId } from '../utils/orderResume'
+import { PayPanel } from '../pages/Deposit'
 import type { Order, CryptoNetwork } from '../store/types'
 
 interface Props {
@@ -66,6 +67,11 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
   const toast = useToast()
+  const [showInlinePay, setShowInlinePay] = useState(false)
+
+  useEffect(() => {
+    setShowInlinePay(false)
+  }, [order?.id])
 
   useEffect(() => {
     if (!order) return
@@ -196,7 +202,7 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
             </span>
           </div>
 
-          <div style={{ padding: '24px 24px 28px', display: 'flex', flexDirection: 'column', gap: 28 }}>
+          <div className="order-sheet-body" style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
 
             {/* Primary asset row */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
@@ -318,7 +324,50 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                 createdAt={order.created}
               />
             )}
-            {order.status === 'pending' && isPendingCryptoInvoice(order) && (
+            {order.status === 'pending' && isPendingCryptoInvoice(order) && showInlinePay && cryptoOpt && !isDeposit && (
+              <div style={{ marginBottom: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowInlinePay(false)}
+                  style={{
+                    marginBottom: 10, background: 'transparent', border: 'none',
+                    color: 'rgba(255,255,255,0.55)', fontSize: 12, cursor: 'pointer',
+                  }}
+                >
+                  ← {lang === 'ru' ? 'Назад к счёту' : 'Back to invoice'}
+                </button>
+                <PayPanel
+                  layout="sheet"
+                  orderId={order.id}
+                  amountUsd={order.amount}
+                  uniqueAmount={order.amount}
+                  createdAt={order.created}
+                  expiresAt={order.expires_at}
+                  network={cryptoOpt.id}
+                  cryptoName={cryptoOpt.name}
+                  cryptoSymbol={cryptoOpt.symbol}
+                  cryptoColor={cryptoOpt.color}
+                  cryptoAddressFallback={cryptoOpt.address}
+                  lang={lang === 'ru' ? 'ru' : 'en'}
+                  onCancel={() => {
+                    void (async () => {
+                      if (api.isEnabled()) await api.cancelOrder(order.id)
+                      setOrderStatus(order.id, 'expired')
+                      haptic('light')
+                      toast.show(lang === 'ru' ? 'Счёт отменён' : 'Invoice cancelled', 'success')
+                      setShowInlinePay(false)
+                      onClose()
+                    })()
+                  }}
+                  onSuccess={() => {
+                    setOrderStatus(order.id, 'paid')
+                    setShowInlinePay(false)
+                    onClose()
+                  }}
+                />
+              </div>
+            )}
+            {order.status === 'pending' && isPendingCryptoInvoice(order) && !showInlinePay && (
               <div style={{
                 background: 'rgba(255,210,74,0.08)',
                 border: '1px solid rgba(255,210,74,0.25)',
@@ -338,8 +387,8 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                   type="button"
                   onClick={() => {
                     haptic('medium')
-                    onClose()
                     if (isDeposit) {
+                      onClose()
                       navigate('/deposit', {
                         state: {
                           resumeOrderId: order.id,
@@ -350,6 +399,7 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                     }
                     const productId = resolveOrderProductId(order, products)
                     if (productId) {
+                      onClose()
                       navigate(`/product/${productId}`, {
                         state: {
                           resumeCryptoPay: true,
@@ -359,10 +409,14 @@ export default function OrderDetailModal({ order, onClose, returnTo }: Props) {
                       })
                       return
                     }
+                    if (cryptoOpt) {
+                      setShowInlinePay(true)
+                      return
+                    }
                     toast.show(
                       lang === 'ru'
-                        ? 'Не найден товар для этого счёта. Откройте его из маркета.'
-                        : 'Product not found for this invoice. Open it from the market.',
+                        ? 'Не найден способ оплаты для этого счёта.'
+                        : 'No payment method for this invoice.',
                       'error',
                     )
                   }}

@@ -18,6 +18,8 @@ interface TgWebApp {
   enableClosingConfirmation?: () => void
   ready?: () => void
   expand?: () => void
+  viewportHeight?: number
+  viewportStableHeight?: number
   close?: () => void
   initDataUnsafe?: {
     user?: { id?: number; username?: string; first_name?: string; last_name?: string; photo_url?: string; language_code?: string }
@@ -70,27 +72,43 @@ export function useTelegram() {
       tg?.setHeaderColor?.('#050510')
       tg?.setBackgroundColor?.('#050510')
 
-      const applyTgTop = () => {
+      const applyLayout = () => {
         const r = getTg() as Record<string, unknown> | undefined
         if (!r) return
-        const csa = r.contentSafeAreaInset as { top?: number } | undefined
-        const sai = r.safeAreaInset as { top?: number } | undefined
-        // Telegram reports both device safe area (notch) and content safe area
-        // (Telegram header). Use the largest single value rather than summing —
-        // summing pushes the hero way down inside the WebView. Cap to 28px so
-        // the layout stays compact like the preview.
+        const csa = r.contentSafeAreaInset as { top?: number; bottom?: number } | undefined
+        const sai = r.safeAreaInset as { top?: number; bottom?: number } | undefined
         const top = Math.max(csa?.top ?? 0, sai?.top ?? 0)
         const val = Math.min(top > 0 ? top : 14, 28)
         document.documentElement.style.setProperty('--tg-top', `${val}px`)
+        const bottom = Math.max(csa?.bottom ?? 0, sai?.bottom ?? 0)
+        document.documentElement.style.setProperty('--tg-bottom', `${bottom}px`)
+
+        const vh =
+          (typeof r.viewportStableHeight === 'number' && r.viewportStableHeight > 0
+            ? r.viewportStableHeight
+            : typeof r.viewportHeight === 'number' && r.viewportHeight > 0
+              ? r.viewportHeight
+              : window.innerHeight) as number
+        document.documentElement.style.setProperty('--tg-vh', `${vh}px`)
       }
 
-      applyTgTop()
+      applyLayout()
+      try { tg?.expand?.() } catch { /* ignore */ }
 
-      const onSafeArea = () => applyTgTop()
-      try { (tg as any).onEvent?.('contentSafeAreaChanged', onSafeArea) } catch {}
-      try { (tg as any).onEvent?.('safeAreaChanged', onSafeArea) } catch {}
+      const onLayout = () => applyLayout()
+      try { (tg as any).onEvent?.('contentSafeAreaChanged', onLayout) } catch {}
+      try { (tg as any).onEvent?.('safeAreaChanged', onLayout) } catch {}
+      try { (tg as any).onEvent?.('viewportChanged', onLayout) } catch {}
 
-      setTimeout(applyTgTop, 300)
+      const onVisible = () => {
+        if (document.visibilityState !== 'visible') return
+        try { tg?.expand?.() } catch { /* ignore */ }
+        applyLayout()
+      }
+      document.addEventListener('visibilitychange', onVisible)
+
+      setTimeout(applyLayout, 300)
+      setTimeout(applyLayout, 800)
     } catch {
       /* ignore */
     }

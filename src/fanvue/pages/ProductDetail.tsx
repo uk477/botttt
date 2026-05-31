@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
@@ -73,6 +74,16 @@ export default function ProductDetail() {
   useEffect(() => {
     if (product) track('product_view', { id: product.id, title: product.title })
   }, [product])
+
+  useEffect(() => {
+    if (!showPayment) return
+    document.body.classList.add('pay-sheet-open')
+    document.querySelector('.scroll-area')?.classList.add('pay-sheet-open')
+    return () => {
+      document.body.classList.remove('pay-sheet-open')
+      document.querySelector('.scroll-area')?.classList.remove('pay-sheet-open')
+    }
+  }, [showPayment])
 
   useEffect(() => {
     if (!showPayment) {
@@ -596,8 +607,8 @@ export default function ProductDetail() {
         </motion.div>
       </main>
 
-      <AnimatePresence>
-        {showPayment && (
+      {showPayment && createPortal(
+        <AnimatePresence>
           <motion.div
             className="fv-sheet-overlay"
             initial={false}
@@ -627,6 +638,7 @@ export default function ProductDetail() {
                 }}
               />
 
+              <div className="fv-pay-sheet-scroll">
               {payStep === 'select' && (
                 <motion.div
                   className="fv-pay-select"
@@ -948,10 +960,12 @@ export default function ProductDetail() {
                   </div>
                 )
               })()}
+              </div>
             </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
+      )}
     </PageTransition>
   )
 }

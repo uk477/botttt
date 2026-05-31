@@ -101,12 +101,13 @@ export default function Orders() {
   return (
     <PageTransition>
       <div
+        className="orders-page-shell"
         style={{
-          minHeight: '100vh',
           background: INK,
           color: '#fff',
           fontFamily: DISPLAY,
-          padding: 'max(18px, calc(var(--tg-top) + 8px)) 18px calc(var(--dock-h, 80px) + 64px)',
+          padding: 'max(18px, calc(var(--tg-top) + 8px)) 18px calc(var(--fv-nav-h, 78px) + var(--tg-bottom, 0px) + 28px)',
+          minHeight: 'min-content',
         }}
       >
         {/* Header */}
@@ -162,9 +163,11 @@ export default function Orders() {
 
         {/* Filter pills */}
         <div
+          className="orders-filter-row"
           style={{
             display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none',
-            marginBottom: 22, padding: '4px 0',
+            marginBottom: 22, padding: '4px 4px 4px 0',
+            WebkitOverflowScrolling: 'touch',
           }}
         >
           {FILTERS.map((f) => {
