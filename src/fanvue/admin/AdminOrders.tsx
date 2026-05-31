@@ -16,10 +16,19 @@ function fmt(iso: string) {
   return new Date(iso).toLocaleString()
 }
 
+function userLabel(uid: number | undefined, byUid: Record<number, { username: string; full_name: string }>): string {
+  if (!uid) return '—'
+  const u = byUid[uid]
+  if (u?.username) return `@${u.username}`
+  if (u?.full_name) return u.full_name
+  return `UID ${uid}`
+}
+
 export default function AdminOrders() {
   const t = useT()
   const lang = useStore((s) => s.lang)
   const orders = useStore((s) => s.orders)
+  const adminUserByUid = useStore((s) => s.adminUserByUid)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const setOrderDelivery = useStore((s) => s.setOrderDelivery)
   const deleteOrder = useStore((s) => s.deleteOrder)
@@ -167,16 +176,47 @@ export default function AdminOrders() {
     setOpen(null)
   }
 
+  const buildRows = () => filtered.map((o) => {
+    const u = o.uid ? adminUserByUid[o.uid] : undefined
+    return {
+      id: o.id,
+      kind: o.kind,
+      uid: o.uid ?? '',
+      username: u?.username ?? '',
+      full_name: u?.full_name ?? '',
+      product: o.product_title ?? '',
+      amount: o.amount.toFixed(2),
+      status: o.status,
+      network: o.provider ?? '',
+      txid: o.txid ?? '',
+      created: o.created.slice(0, 19).replace('T', ' '),
+      paid_at: o.paid_at?.slice(0, 19).replace('T', ' ') ?? '',
+    }
+  })
+
   const handleExportCSV = () => {
-    const header = 'ID,Тип,Товар,Сумма,Статус,Сеть,Создан,Оплачен\n'
-    const rows = filtered.map((o) =>
-      [o.id, o.kind, o.product_title ?? '', o.amount.toFixed(2), o.status, o.provider ?? '', o.created.slice(0,16), o.paid_at?.slice(0,16) ?? ''].join(',')
+    const rows = buildRows()
+    const header = 'ID,Тип,UID,Username,Имя,Товар,Сумма,Статус,Сеть,TX,Создан,Оплачен\n'
+    const csv = rows.map((r) =>
+      [r.id, r.kind, r.uid, r.username, `"${r.full_name}"`, `"${r.product}"`, r.amount, r.status, r.network, r.txid, r.created, r.paid_at].join(',')
     ).join('\n')
-    const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8' })
+    const blob = new Blob(['\uFEFF' + header + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = `orders_${Date.now()}.csv`; a.click()
     URL.revokeObjectURL(url)
-    toast.show(lang === 'ru' ? `Экспорт: ${filtered.length} записей` : `Exported ${filtered.length} rows`, 'success')
+    toast.show(lang === 'ru' ? `CSV: ${rows.length} записей` : `CSV: ${rows.length} rows`, 'success')
+  }
+
+  const handleExportTXT = () => {
+    const rows = buildRows()
+    const lines = rows.map((r, i) =>
+      `#${i + 1}\nID: ${r.id}\nТип: ${r.kind === 'deposit' ? 'Пополнение' : 'Покупка'}\nUID: ${r.uid}\nUsername: ${r.username || '—'}\nИмя: ${r.full_name || '—'}\nТовар: ${r.product || '—'}\nСумма: $${r.amount}\nСтатус: ${r.status}\nСеть: ${r.network || '—'}\nTX: ${r.txid || '—'}\nСоздан: ${r.created}\nОплачен: ${r.paid_at || '—'}\n`
+    ).join('\n' + '─'.repeat(40) + '\n\n')
+    const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `orders_${Date.now()}.txt`; a.click()
+    URL.revokeObjectURL(url)
+    toast.show(lang === 'ru' ? `TXT: ${rows.length} записей` : `TXT: ${rows.length} rows`, 'success')
   }
 
   return (
@@ -195,6 +235,7 @@ export default function AdminOrders() {
             />
           </div>
           <button type="button" className="adm-btn" onClick={handleExportCSV}>CSV</button>
+          <button type="button" className="adm-btn" onClick={handleExportTXT}>TXT</button>
         </div>
 
         <AdminSegmented
@@ -232,9 +273,13 @@ export default function AdminOrders() {
                 <div className="t-sm fw-bold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {o.product_title ?? (o.kind === 'deposit' ? 'Deposit' : 'Order')}
                 </div>
+                <div style={{ fontSize: 11, color: 'var(--adm-muted)', marginTop: 2 }}>
+                  {userLabel(o.uid, adminUserByUid)} · {fmt(o.created)}
+                </div>
                 <div className="row gap-2 mt-1">
                   <span className={admStatusClass(o.status)}>{t(`status_${o.status}` as never)}</span>
-                  <span className="t-xs t-muted">{o.id}</span>
+                  <span className="t-xs t-muted">#{o.id.slice(-8)}</span>
+                  {o.provider && <span className="t-xs t-muted" style={{ textTransform: 'uppercase' }}>{o.provider}</span>}
                 </div>
               </div>
               <div className="t-md fw-black" style={{ color: 'var(--adm-accent)' }}>${o.amount.toFixed(2)}</div>
@@ -255,11 +300,17 @@ export default function AdminOrders() {
           <>
             <AdminMeta rows={[
               { label: 'ID', value: <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{open.id}</span> },
+              { label: lang === 'ru' ? 'Тип' : 'Kind', value: open.kind === 'deposit' ? (lang === 'ru' ? 'Пополнение' : 'Deposit') : (lang === 'ru' ? 'Покупка' : 'Purchase') },
+              { label: 'UID', value: <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{open.uid ?? '—'}</span> },
+              { label: lang === 'ru' ? 'Пользователь' : 'User', value: userLabel(open.uid, adminUserByUid) },
               { label: lang === 'ru' ? 'Сумма' : 'Amount', value: <span style={{ color: 'var(--adm-accent)' }}>${open.amount.toFixed(2)}</span> },
               { label: lang === 'ru' ? 'Статус' : 'Status', value: <span className={admStatusClass(open.status)}>{t(`status_${open.status}` as never)}</span> },
-              ...(open.provider ? [{ label: lang === 'ru' ? 'Сеть' : 'Network', value: <span style={{ textTransform: 'uppercase' }}>{open.provider}</span> }] : []),
+              ...(open.provider ? [{ label: lang === 'ru' ? 'Сеть' : 'Network', value: <span style={{ textTransform: 'uppercase' as const }}>{open.provider}</span> }] : []),
+              ...(open.product_title ? [{ label: lang === 'ru' ? 'Товар' : 'Product', value: open.product_title }] : []),
+              ...(open.quantity ? [{ label: lang === 'ru' ? 'Кол-во' : 'Qty', value: String(open.quantity) }] : []),
               { label: lang === 'ru' ? 'Создан' : 'Created', value: fmt(open.created) },
               ...(open.paid_at ? [{ label: lang === 'ru' ? 'Оплачен' : 'Paid', value: fmt(open.paid_at) }] : []),
+              ...(open.txid ? [{ label: 'TX', value: <span style={{ fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-all' as const }}>{open.txid}</span> }] : []),
             ]} />
 
             {open.status === 'pending' && (
