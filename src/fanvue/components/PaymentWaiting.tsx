@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useT } from '../i18n'
 import { useStore } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
 import { QRCodeSVG } from 'qrcode.react'
@@ -61,6 +62,7 @@ export default function PaymentWaiting({
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
+  const expiredRef = useRef(false)
   useEffect(() => {
     if (paused) return
     intervalRef.current = window.setInterval(() => {
@@ -73,6 +75,36 @@ export default function PaymentWaiting({
     }, 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [paused, expiresAt, createdAt])
+
+  useEffect(() => {
+    if (timer > 0 || expiredRef.current) return
+    expiredRef.current = true
+    void (async () => {
+      const s = await fetchOrderStatus(orderId)
+      if (s === 'paid' || s === 'completed') {
+        setStatus(s)
+        return
+      }
+      if (s === 'expired' || s === 'failed') {
+        setStatus(s)
+        setTimedOut(true)
+        useStore.getState().setOrderStatus(orderId, s)
+        haptic('error')
+        return
+      }
+      if (api.isEnabled()) {
+        try {
+          await api.cancelOrder(orderId)
+        } catch {
+          /* idempotent */
+        }
+      }
+      setStatus('expired')
+      setTimedOut(true)
+      useStore.getState().setOrderStatus(orderId, 'expired')
+      haptic('error')
+    })()
+  }, [timer, orderId, haptic])
 
   // Step animation: 0 → 1 after 1.5s, demo only
   useEffect(() => {
@@ -89,6 +121,7 @@ export default function PaymentWaiting({
       if (s === 'expired' || s === 'failed') {
         setTimedOut(true)
         setStatus(s)
+        useStore.getState().setOrderStatus(orderId, s)
       } else if (kind === 'deposit') {
         if (s === 'paid') setStep(1)
         if (s === 'completed') {

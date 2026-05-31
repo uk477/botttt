@@ -19,6 +19,7 @@ import {
 import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
 import type { CryptoNetwork, Order } from '../store/types'
+import { isActiveCryptoInvoice, pickLatestActiveCryptoPending } from '../utils/pendingOrder'
 
 
 const EASE = [0.22, 1, 0.36, 1] as const
@@ -50,6 +51,7 @@ export default function ProductDetail() {
   const addRealSale = useStore((s) => s.addRealSale)
   const refreshUser = useStore((s) => s.refreshUser)
   const cancelAllPendingCrypto = useStore((s) => s.cancelAllPendingCrypto)
+  const reconcilePendingOrders = useStore((s) => s.reconcilePendingOrders)
 
   const product = products.find((p) => p.id === Number(id))
   const [qty, setQty] = useState(1)
@@ -74,8 +76,10 @@ export default function ProductDetail() {
       setPayStep('select')
       setSelectedNet(null)
       setPendingOrder(null)
+      return
     }
-  }, [showPayment])
+    void reconcilePendingOrders()
+  }, [showPayment, reconcilePendingOrders])
 
   if (!product) {
     return (
@@ -98,17 +102,25 @@ export default function ProductDetail() {
   const hasEnoughBalance = balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
 
-  const latestPendingCrypto = useMemo(() => {
-    const pending = orders
-      .filter(
-        (o) =>
-          o.status === 'pending' &&
-          (o.kind === 'deposit' ||
-            (o.kind === 'buy' && o.provider && o.provider !== 'balance')),
-      )
-      .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
-    return pending[0] ?? null
-  }, [orders])
+  const latestPendingCrypto = useMemo(
+    () => pickLatestActiveCryptoPending(orders),
+    [orders],
+  )
+
+  useEffect(() => {
+    if (payStep === 'pending_gate' && !latestPendingCrypto) {
+      setPayStep('crypto_net')
+    }
+  }, [payStep, latestPendingCrypto])
+
+  useEffect(() => {
+    if (!pendingOrder) return
+    const o = orders.find((x) => x.id === pendingOrder.id)
+    if (!o || !isActiveCryptoInvoice(o)) {
+      setPendingOrder(null)
+      if (payStep === 'crypto_pay') setPayStep('crypto_net')
+    }
+  }, [orders, pendingOrder, payStep])
 
   const resumePendingBuy = (o: Order) => {
     const net = o.provider as CryptoNetwork
@@ -240,6 +252,7 @@ export default function ProductDetail() {
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
     await cancelAllPendingCrypto()
+    await reconcilePendingOrders()
     const result = await createOrder({
       uid: user.uid,
       kind: 'buy',
@@ -278,6 +291,7 @@ export default function ProductDetail() {
       address: remote?.address,
     })
     setPayStep('crypto_pay')
+    void reconcilePendingOrders()
     setTimeout(() => { purchaseLock.current = false }, 2000)
   }
 
@@ -674,16 +688,16 @@ export default function ProductDetail() {
                     <button type="button" onClick={() => setPayStep('select')} aria-label="Back">
                       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                     </button>
-                    <h2>{lang === 'ru' ? 'Уже есть счёт' : 'Invoice already open'}</h2>
+                    <h2>{lang === 'ru' ? 'Другой счёт открыт' : 'Another invoice is open'}</h2>
                   </div>
                   <p className="fv-pay-sub" style={{ marginBottom: 16 }}>
                     {lang === 'ru'
                       ? latestPendingCrypto.kind === 'deposit'
-                        ? 'Сначала пополнение или отмените его — нельзя одновременно пополнять баланс и платить за лот.'
-                        : 'Сначала оплатите этот заказ или отмените счёт.'
+                        ? 'Сейчас открыто пополнение баланса. За товар можно платить только один счёт — сначала закройте пополнение или отмените его.'
+                        : 'Сейчас открыта оплата другого товара. Завершите её, отмените или создайте новый счёт на этот лот.'
                       : latestPendingCrypto.kind === 'deposit'
-                        ? 'Finish or cancel the deposit first — balance top-up and lot payment cannot run together.'
-                        : 'Pay this order first, or cancel and create a new invoice.'}
+                        ? 'A balance top-up is open. Finish or cancel it before paying for this item.'
+                        : 'Another item payment is open. Continue it, cancel it, or start a new invoice for this product.'}
                   </p>
                   <div
                     style={{
@@ -707,9 +721,6 @@ export default function ProductDetail() {
                     </div>
                     <div style={{ color: 'rgba(255,255,255,0.45)' }}>
                       #{latestPendingCrypto.id.split('-').pop() ?? latestPendingCrypto.id.slice(-8)}
-                    </div>
-                    <div style={{ color: '#ffd24a', marginTop: 6 }}>
-                      {lang === 'ru' ? 'Оплатил: НЕТ' : 'Paid: NO'}
                     </div>
                   </div>
                   <motion.button
@@ -747,8 +758,30 @@ export default function ProductDetail() {
                     whileTap={{ scale: 0.98 }}
                     style={{ marginBottom: 10, opacity: 0.92 }}
                   >
-                    <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить всё и новый счёт' : 'Cancel all & new invoice'}</span>
+                    <span className="dpz-cta-t">
+                      {latestPendingCrypto.kind === 'deposit'
+                        ? (lang === 'ru' ? 'Отменить пополнение · купить товар' : 'Cancel top-up · pay for item')
+                        : (lang === 'ru' ? 'Отменить и новый счёт на этот товар' : 'Cancel & new invoice for this item')}
+                    </span>
                   </motion.button>
+                  {latestPendingCrypto.kind === 'buy' && (
+                    <motion.button
+                      className="dpz-cta fv-full"
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          await cancelAllPendingCrypto()
+                          setPendingOrder(null)
+                          setSelectedNet(null)
+                          setPayStep('crypto_net')
+                        })()
+                      }}
+                      whileTap={{ scale: 0.98 }}
+                      style={{ marginBottom: 10, opacity: 0.85 }}
+                    >
+                      <span className="dpz-cta-t">{lang === 'ru' ? 'Сменить сеть (отменить старый счёт)' : 'Change network (cancel old invoice)'}</span>
+                    </motion.button>
+                  )}
                   <button
                     type="button"
                     className="fv-pay-ghost"

@@ -18,6 +18,7 @@ import { track } from '../utils/analytics'
 import { rateLimit, rateLimitUndo, isValidAmount, audit } from '../utils/security'
 import { paymentSecondsRemaining } from '../utils/paymentTimer'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
+import { pickLatestActiveDeposit, pickLatestActiveCryptoPending } from '../utils/pendingOrder'
 
 type Step = 'amount' | 'network' | 'pay' | 'success'
 const QUICK_AMOUNTS = [10, 25, 50, 100]
@@ -68,49 +69,48 @@ export default function Deposit() {
   const addNotification = useStore((s) => s.addNotification)
   const creditDeposit = useStore((s) => s.creditDeposit)
   const cancelAllPendingCrypto = useStore((s) => s.cancelAllPendingCrypto)
+  const reconcilePendingOrders = useStore((s) => s.reconcilePendingOrders)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const [creating, setCreating] = useState(false)
 
-  const existingPending = orders.find((o) => o.kind === 'deposit' && o.status === 'pending')
-  const [step, setStep] = useState<Step>(() => existingPending ? 'pay' : 'amount')
-  const [amount, setAmount] = useState(() => existingPending ? String(existingPending.amount) : '')
-  const [network, setNetwork] = useState<CryptoNetwork | null>(() => (existingPending?.provider as CryptoNetwork) ?? null)
+  const activeDeposit = useMemo(() => pickLatestActiveDeposit(orders), [orders])
+  const blockingBuy = useMemo(() => {
+    const latest = pickLatestActiveCryptoPending(orders)
+    return latest?.kind === 'buy' ? latest : null
+  }, [orders])
+
+  const [step, setStep] = useState<Step>('amount')
+  const [amount, setAmount] = useState('')
+  const [network, setNetwork] = useState<CryptoNetwork | null>(null)
   const [pendingOrder, setPendingOrder] = useState<{
     id: string
     uniqueAmount: number
     createdAt: string
     expiresAt?: string
     address?: string
-  } | null>(() =>
-    existingPending
-      ? {
-          id: existingPending.id,
-          uniqueAmount: existingPending.amount,
-          createdAt: existingPending.created,
-          expiresAt: existingPending.expires_at,
-        }
-      : null,
-  )
-  // NOTE: leaving the page / closing Telegram does NOT cancel the deposit.
+  } | null>(null)
+
   useEffect(() => {
-    if (!existingPending || existingPending.status !== 'pending') return
-    setPendingOrder((prev) => {
-      if (!prev || prev.id !== existingPending.id) {
-        return {
-          id: existingPending.id,
-          uniqueAmount: existingPending.amount,
-          createdAt: existingPending.created,
-          expiresAt: existingPending.expires_at,
-        }
-      }
-      return {
-        ...prev,
-        createdAt: existingPending.created,
-        expiresAt: existingPending.expires_at ?? prev.expiresAt,
-        uniqueAmount: existingPending.amount,
-      }
-    })
-  }, [existingPending?.id, existingPending?.status, existingPending?.created, existingPending?.expires_at, existingPending?.amount])
+    void reconcilePendingOrders()
+  }, [reconcilePendingOrders])
+
+  useEffect(() => {
+    if (blockingBuy) return
+    if (activeDeposit) {
+      setAmount(String(activeDeposit.amount))
+      setNetwork((activeDeposit.provider as CryptoNetwork) ?? null)
+      setPendingOrder({
+        id: activeDeposit.id,
+        uniqueAmount: activeDeposit.amount,
+        createdAt: activeDeposit.created,
+        expiresAt: activeDeposit.expires_at,
+      })
+      setStep('pay')
+      return
+    }
+    setPendingOrder(null)
+    if (step === 'pay' || step === 'network') setStep('amount')
+  }, [activeDeposit?.id, activeDeposit?.amount, activeDeposit?.expires_at, blockingBuy?.id, step])
 
   const numAmount = parseFloat(amount) || 0
   const amountOk = numAmount >= 1
@@ -160,6 +160,7 @@ export default function Deposit() {
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
     await cancelAllPendingCrypto()
+    await reconcilePendingOrders()
     const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
     if (api.isEnabled() && !result.ok) {
       rateLimitUndo('deposit')
@@ -204,6 +205,57 @@ export default function Deposit() {
   }
 
   const stepIndex = step === 'amount' ? 0 : step === 'network' ? 1 : 2
+
+  if (blockingBuy && step !== 'success') {
+    const title =
+      blockingBuy.product_title ?? (lang === 'ru' ? 'Покупка товара' : 'Product checkout')
+    return (
+      <PageTransition>
+        <main className="dpz">
+          <header className="dpz-top">
+            <button className="dpz-back" onClick={() => navigate(-1)} aria-label="Back">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="square"/></svg>
+              <span>{lang === 'ru' ? 'НАЗАД' : 'BACK'}</span>
+            </button>
+          </header>
+          <section className="dpz-card" style={{ marginTop: 12 }}>
+            <h1 className="dpz-h2">{lang === 'ru' ? 'Сначала оплата товара' : 'Finish product payment first'}</h1>
+            <p className="dpz-lead" style={{ marginBottom: 16 }}>
+              {lang === 'ru'
+                ? 'Открыт счёт на покупку. Пополнение баланса и оплата товара не идут одновременно — закройте покупку или отмените счёт.'
+                : 'A product invoice is open. Top-up and checkout cannot run together — pay or cancel the purchase first.'}
+            </p>
+            <p style={{ fontFamily: 'monospace', fontSize: 12, opacity: 0.85, marginBottom: 20 }}>
+              {title} · ${blockingBuy.amount.toFixed(2)} · {blockingBuy.provider?.toUpperCase()}
+            </p>
+            <button
+              type="button"
+              className="dpz-cta"
+              onClick={() => {
+                if (blockingBuy.product_id) navigate(`/product/${blockingBuy.product_id}`)
+                else navigate('/orders')
+              }}
+            >
+              <span className="dpz-cta-t">{lang === 'ru' ? 'К оплате товара' : 'Go to checkout'}</span>
+            </button>
+            <button
+              type="button"
+              className="dpz-cta"
+              style={{ marginTop: 10, opacity: 0.9 }}
+              onClick={() => {
+                void (async () => {
+                  await cancelAllPendingCrypto()
+                  await reconcilePendingOrders()
+                })()
+              }}
+            >
+              <span className="dpz-cta-t">{lang === 'ru' ? 'Отменить покупку · пополнить баланс' : 'Cancel purchase · top up balance'}</span>
+            </button>
+          </section>
+        </main>
+      </PageTransition>
+    )
+  }
 
   return (
     <PageTransition>
@@ -576,18 +628,32 @@ export function PayPanel({
 
   const expiredRef = useRef(false)
   useEffect(() => {
-    if (timer > 0 || expiredRef.current || status !== 'pending') return
+    if (timer > 0 || expiredRef.current) return
     expiredRef.current = true
     void (async () => {
       const s = await fetchOrderStatus(orderId)
-      if (!s) return
-      setStatus(s)
+      if (s === 'paid' || s === 'completed') {
+        setStatus(s)
+        return
+      }
       if (s === 'expired' || s === 'failed') {
+        setStatus(s)
         useStore.getState().setOrderStatus(orderId, s)
         haptic('error')
+        return
       }
+      if (api.isEnabled()) {
+        try {
+          await api.cancelOrder(orderId)
+        } catch {
+          /* idempotent */
+        }
+      }
+      setStatus('expired')
+      useStore.getState().setOrderStatus(orderId, 'expired')
+      haptic('error')
     })()
-  }, [timer, status, orderId, haptic])
+  }, [timer, orderId, haptic])
 
   // step reflects real status: 0 = waiting, 1 = detected/confirming, 2 = credited
 

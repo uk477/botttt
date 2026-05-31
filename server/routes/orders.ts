@@ -383,7 +383,7 @@ router.post("/api/order/:id/cancel", orderCancelLimiter, (req: Request, res: Res
     return;
   }
   if (order.status !== "pending") {
-    res.status(400).json({ error: "Order is not pending" });
+    res.json({ ok: true, status: order.status, already_closed: true });
     return;
   }
 

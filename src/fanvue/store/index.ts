@@ -3,6 +3,10 @@ import { persist } from 'zustand/middleware'
 import { CONFIG } from '../config'
 import { api } from './api'
 import {
+  isActiveCryptoInvoice,
+  isCryptoInvoiceOrder,
+} from '../utils/pendingOrder'
+import {
   verifyAdminHash,
   sanitizeText,
   rateLimit,
@@ -76,21 +80,32 @@ const MOCK_ORDERS: Order[] = []
 // Empty by default — bot triage greeting will be shown
 const MOCK_SUPPORT: SupportMessage[] = []
 
-/** Server wins on conflict; keep recent local-only pending if server list missed them. */
+/** Server wins on conflict; never resurrect expired-by-time local pending. */
 function mergeServerOrders(local: Order[], server: Order[]): Order[] {
   const byId = new Map<string, Order>()
   for (const o of server) byId.set(o.id, o)
   const now = Date.now()
   for (const o of local) {
     if (byId.has(o.id)) continue
-    if (o.status !== 'pending') continue
+    if (!isCryptoInvoiceOrder(o)) continue
+    if (!isActiveCryptoInvoice(o)) continue
     const age = now - new Date(o.created).getTime()
     if (age > 3 * 3600_000) continue
     byId.set(o.id, o)
   }
-  return [...byId.values()].sort(
+  return reconcileExpiredPendingOrders([...byId.values()]).sort(
     (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime(),
   )
+}
+
+/** Local status for invoices past expires_at (store may still say pending). */
+function reconcileExpiredPendingOrders(list: Order[]): Order[] {
+  return list.map((o) => {
+    if (isCryptoInvoiceOrder(o) && !isActiveCryptoInvoice(o)) {
+      return { ...o, status: 'expired' as const }
+    }
+    return o
+  })
 }
 
 function syncNotificationsWithOrders(
@@ -103,7 +118,7 @@ function syncNotificationsWithOrders(
     return !o || !terminal.has(o.status)
   })
   for (const o of orders) {
-    if (o.status !== 'pending') continue
+    if (!isActiveCryptoInvoice(o)) continue
     if (next.some((n) => n.orderId === o.id)) continue
     const network = (o.provider || 'trc20') as CryptoNetwork
     next = [{
@@ -224,6 +239,8 @@ interface AppStore {
   cancelPendingBuyOrders: () => Promise<void>
   /** Отменить все pending счета: пополнение + покупка криптой (один активный). */
   cancelAllPendingCrypto: () => Promise<void>
+  /** Пометить просроченные счета expired + подтянуть список с сервера. */
+  reconcilePendingOrders: () => Promise<void>
 
   // Admin actions
   setCryptoAddress: (network: CryptoNetwork, address: string) => void
@@ -846,23 +863,60 @@ export const useStore = create<AppStore>()(
       },
 
       cancelAllPendingCrypto: async () => {
-        const pending = get().orders.filter(
-          (o) =>
-            o.status === 'pending' &&
-            (o.kind === 'deposit' ||
-              (o.kind === 'buy' && o.provider && o.provider !== 'balance')),
-        )
+        const pending = get().orders.filter(isCryptoInvoiceOrder)
         if (api.isEnabled()) {
-          await Promise.all(pending.map((o) => api.cancelOrder(o.id)))
+          await Promise.all(
+            pending.map(async (o) => {
+              try {
+                await api.cancelOrder(o.id)
+              } catch {
+                /* idempotent on server */
+              }
+            }),
+          )
         }
-        set((s) => ({
-          orders: s.orders.map((o) =>
-            pending.some((p) => p.id === o.id) ? { ...o, status: 'expired' as const } : o,
-          ),
-          notifications: s.notifications.filter(
-            (n) => !pending.some((o) => o.id === n.orderId),
-          ),
-        }))
+        const ids = new Set(pending.map((o) => o.id))
+        set((s) => {
+          const orders = reconcileExpiredPendingOrders(
+            s.orders.map((o) => (ids.has(o.id) ? { ...o, status: 'expired' as const } : o)),
+          )
+          return {
+            orders,
+            notifications: syncNotificationsWithOrders(s.notifications, orders),
+          }
+        })
+      },
+
+      reconcilePendingOrders: async () => {
+        if (api.isEnabled()) {
+          try {
+            const ordersRes = await api.getMyOrders()
+            if (
+              ordersRes &&
+              typeof ordersRes === 'object' &&
+              Array.isArray((ordersRes as { orders?: unknown }).orders)
+            ) {
+              const mapped = ((ordersRes as { orders: Record<string, unknown>[] }).orders).map(
+                mapServerOrder,
+              )
+              const merged = mergeServerOrders(get().orders, mapped)
+              set({
+                orders: merged,
+                notifications: syncNotificationsWithOrders(get().notifications, merged),
+              })
+              return
+            }
+          } catch {
+            /* fall through to local reconcile */
+          }
+        }
+        set((s) => {
+          const orders = reconcileExpiredPendingOrders(s.orders)
+          return {
+            orders,
+            notifications: syncNotificationsWithOrders(s.notifications, orders),
+          }
+        })
       },
 
       syncStoreConfig: async () => {
@@ -1030,10 +1084,14 @@ export const useStore = create<AppStore>()(
               (m.text === `post_delivery_actions:${id}` || m.text.startsWith(`post_delivery_resolved:${id}:`)),
           )
           const shouldAddActions = becameCompleted && hasReceipt && !alreadyHasActions
-          return {
-            orders: s.orders.map((o) => o.id === id
+          const orders = reconcileExpiredPendingOrders(
+            s.orders.map((o) => o.id === id
               ? { ...o, status, paid_at: status === 'completed' || status === 'paid' ? new Date().toISOString() : o.paid_at }
               : o),
+          )
+          return {
+            orders,
+            notifications: syncNotificationsWithOrders(s.notifications, orders),
             supportMessages: becameCompleted
               ? [
                   ...s.supportMessages.map((m) =>
