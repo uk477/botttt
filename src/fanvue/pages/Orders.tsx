@@ -6,6 +6,7 @@ import OrderDetailModal from '../components/OrderDetailModal'
 
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import type { Order, OrderStatus, CryptoNetwork } from '../store/types'
+import { resolveOrderProductId } from '../utils/orderResume'
 import CryptoLogo from '../components/CryptoLogo'
 
 const DISPLAY = "'Space Grotesk', system-ui, sans-serif"
@@ -40,6 +41,7 @@ export default function Orders() {
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
   const allOrders = useStore((s) => s.orders)
+  const products = useStore((s) => s.products)
   
   const [filter, setFilter] = useState<Filter>('all')
   const [openOrder, setOpenOrder] = useState<Order | null>(null)
@@ -283,7 +285,20 @@ export default function Orders() {
                         return (
                           <motion.button
                             key={o.id}
-                            onClick={() => setOpenOrder(o)}
+                            onClick={() => {
+                              if (o.status === 'pending') {
+                                const productId = resolveOrderProductId(o, products)
+                                if (productId) {
+                                  navigate(`/product/${productId}`, {
+                                    state: { resumeCryptoPay: true, resumeOrderId: o.id },
+                                  })
+                                } else {
+                                  setOpenOrder(o)
+                                }
+                              } else {
+                                setOpenOrder(o)
+                              }
+                            }}
                             variants={{
                               hidden: { opacity: 0, y: 8 },
                               show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } },

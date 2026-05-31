@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { QRCodeSVG } from 'qrcode.react'
 import PageTransition from '../components/PageTransition'
@@ -20,9 +20,9 @@ import { paymentSecondsRemaining } from '../utils/paymentTimer'
 import type { CryptoNetwork, OrderStatus } from '../store/types'
 import PendingInvoiceGate from '../components/PendingInvoiceGate'
 import {
-  isActiveCryptoInvoice,
-  pickLatestActiveDeposit,
-  pickLatestActiveCryptoPending,
+  isPendingCryptoInvoice,
+  pickLatestPendingDeposit,
+  pickLatestPendingCrypto,
 } from '../utils/pendingOrder'
 
 type Step = 'amount' | 'network' | 'pay' | 'success'
@@ -65,6 +65,7 @@ const COIN_GROUPS: CoinGroup[] = [
 
 export default function Deposit() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { haptic } = useTelegram()
   const toast = useToast()
   const lang = useStore((s) => s.lang)
@@ -78,11 +79,27 @@ export default function Deposit() {
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const [creating, setCreating] = useState(false)
 
-  const activeDeposit = useMemo(() => pickLatestActiveDeposit(orders), [orders])
+  const resumedIdRef = useRef<string | null>(null)
+
+  const activeDeposit = useMemo(() => pickLatestPendingDeposit(orders), [orders])
   const blockingBuy = useMemo(() => {
-    const latest = pickLatestActiveCryptoPending(orders)
+    const latest = pickLatestPendingCrypto(orders)
     return latest?.kind === 'buy' ? latest : null
   }, [orders])
+
+  const resumeDeposit = (o: NonNullable<typeof activeDeposit>) => {
+    if (!o) return
+    resumedIdRef.current = o.id
+    setAmount(String(o.amount))
+    setNetwork((o.provider as CryptoNetwork) ?? null)
+    setPendingOrder({
+      id: o.id,
+      uniqueAmount: o.amount,
+      createdAt: o.created,
+      expiresAt: o.expires_at,
+    })
+    setStep('pay')
+  }
 
   const [step, setStep] = useState<Step>('amount')
   const [amount, setAmount] = useState('')
@@ -99,34 +116,37 @@ export default function Deposit() {
     void reconcilePendingOrders()
   }, [reconcilePendingOrders])
 
-  const resumedIdRef = useRef<string | null>(null)
-
   useEffect(() => {
+    const resumeId = (location.state as { resumeOrderId?: string } | null)?.resumeOrderId
+    if (resumeId) {
+      const o = orders.find((x) => x.id === resumeId && x.kind === 'deposit' && x.status === 'pending')
+      if (o) resumeDeposit(o)
+      navigate(location.pathname, { replace: true, state: {} })
+      return
+    }
     if (blockingBuy) return
     if (activeDeposit) {
-      if (resumedIdRef.current !== activeDeposit.id) {
-        resumedIdRef.current = activeDeposit.id
-        setAmount(String(activeDeposit.amount))
-        setNetwork((activeDeposit.provider as CryptoNetwork) ?? null)
-        setPendingOrder({
-          id: activeDeposit.id,
-          uniqueAmount: activeDeposit.amount,
-          createdAt: activeDeposit.created,
-          expiresAt: activeDeposit.expires_at,
-        })
-        setStep('pay')
-      }
+      if (resumedIdRef.current !== activeDeposit.id) resumeDeposit(activeDeposit)
       return
     }
     resumedIdRef.current = null
     if (pendingOrder) {
       const o = orders.find((x) => x.id === pendingOrder.id)
-      if (!o || o.kind !== 'deposit' || !isActiveCryptoInvoice(o)) {
+      if (!o || o.kind !== 'deposit' || o.status !== 'pending') {
         setPendingOrder(null)
         if (step === 'pay') setStep('amount')
       }
     }
-  }, [activeDeposit?.id, blockingBuy?.id, orders, pendingOrder?.id, step])
+  }, [
+    activeDeposit?.id,
+    blockingBuy?.id,
+    orders,
+    pendingOrder?.id,
+    step,
+    location.state,
+    location.pathname,
+    navigate,
+  ])
 
   const numAmount = parseFloat(amount) || 0
   const amountOk = numAmount >= 1
@@ -188,7 +208,16 @@ export default function Deposit() {
     const depositCount = orders.filter((o) => o.kind === 'deposit').length + 1
     const orderId = remote?.id ?? generateOrderId('deposit')
     const uniqueAmount = remote?.amount_usd ?? generateUniqueAmount(numAmount)
-    addOrder({ id: orderId, orderNum: depositCount, kind: 'deposit', amount: uniqueAmount, status: 'pending', provider: network, created: new Date().toISOString() })
+    addOrder({
+      id: orderId,
+      orderNum: depositCount,
+      kind: 'deposit',
+      amount: uniqueAmount,
+      status: 'pending',
+      provider: network,
+      created: new Date().toISOString(),
+      expires_at: remote?.expires_at,
+    })
     setPendingOrder({
       id: orderId,
       uniqueAmount,
@@ -641,15 +670,10 @@ export function PayPanel({
         haptic('error')
         return
       }
-      if (api.isEnabled()) {
-        try {
-          await api.cancelOrder(orderId)
-        } catch {
-          /* idempotent */
-        }
+      if (s === 'pending') {
+        setStatus('pending')
+        return
       }
-      setStatus('expired')
-      useStore.getState().setOrderStatus(orderId, 'expired')
       haptic('error')
     })()
   }, [timer, orderId, haptic])

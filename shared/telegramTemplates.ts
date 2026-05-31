@@ -188,7 +188,7 @@ export function buildUserNotification(
     case 'support_reply': {
       const preview = params.preview?.trim()
       const rows = preview
-        ? [row(lang, 'Сообщение', 'Message', truncate(preview, 320))]
+        ? [`<blockquote>${escapeHtml(truncate(preview, 320))}</blockquote>`]
         : []
       return {
         text: userMessage(

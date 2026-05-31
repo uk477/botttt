@@ -7,7 +7,8 @@ import { useTelegram } from '../hooks/useTelegram'
 import { useToast } from './Toast'
 import CryptoLogo from './CryptoLogo'
 import DeliveryBlock, { ManualDeliveryBlock } from './DeliveryBlock'
-import { isActiveCryptoInvoice } from '../utils/pendingOrder'
+import { isPendingCryptoInvoice, isPaymentWindowOpen } from '../utils/pendingOrder'
+import { resolveOrderProductId } from '../utils/orderResume'
 import type { Order, CryptoNetwork } from '../store/types'
 
 interface Props { order: Order | null; onClose: () => void }
@@ -54,6 +55,7 @@ export default function OrderDetailModal({ order, onClose }: Props) {
   const t = useT()
   const navigate = useNavigate()
   const lang = useStore((s) => s.lang)
+  const products = useStore((s) => s.products)
   const setOrderStatus = useStore((s) => s.setOrderStatus)
   const { haptic } = useTelegram()
   const toast = useToast()
@@ -307,7 +309,7 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 createdAt={order.created}
               />
             )}
-            {order.status === 'pending' && isActiveCryptoInvoice(order) && (
+            {order.status === 'pending' && isPendingCryptoInvoice(order) && (
               <div style={{
                 background: 'rgba(255,210,74,0.08)',
                 border: '1px solid rgba(255,210,74,0.25)',
@@ -326,11 +328,25 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => {
+                    haptic('medium')
                     onClose()
-                    if (isDeposit) navigate('/deposit')
-                    else if (order.product_id) {
-                      navigate(`/product/${order.product_id}`, { state: { resumeCryptoPay: true } })
-                    } else navigate('/orders')
+                    if (isDeposit) {
+                      navigate('/deposit', { state: { resumeOrderId: order.id } })
+                      return
+                    }
+                    const productId = resolveOrderProductId(order, products)
+                    if (productId) {
+                      navigate(`/product/${productId}`, {
+                        state: { resumeCryptoPay: true, resumeOrderId: order.id },
+                      })
+                      return
+                    }
+                    toast.show(
+                      lang === 'ru'
+                        ? 'Не найден товар для этого счёта. Откройте его из маркета.'
+                        : 'Product not found for this invoice. Open it from the market.',
+                      'error',
+                    )
                   }}
                   style={{
                     width: '100%',
@@ -383,7 +399,7 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                 </button>
               </div>
             )}
-            {order.status === 'pending' && !isActiveCryptoInvoice(order) && (
+            {order.status === 'expired' && (
               <div style={{
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.1)',
@@ -394,6 +410,13 @@ export default function OrderDetailModal({ order, onClose }: Props) {
                   ? 'Срок оплаты истёк. Создайте новый счёт в пополнении или при оплате товара.'
                   : 'Payment window expired. Create a new invoice from top-up or checkout.'}
               </div>
+            )}
+            {order.status === 'pending' && isPendingCryptoInvoice(order) && !isPaymentWindowOpen(order) && (
+              <p style={{ fontSize: 11, color: AMBER, marginTop: -8, marginBottom: 12, lineHeight: 1.45 }}>
+                {lang === 'ru'
+                  ? 'Таймер на экране оплаты может показывать 0:00 — если перевод уже отправили, дождитесь зачисления.'
+                  : 'Timer may show 0:00 — if you already sent crypto, wait for confirmation.'}
+              </p>
             )}
 
             {/* Specimen data grid */}

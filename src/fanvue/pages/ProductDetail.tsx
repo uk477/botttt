@@ -19,7 +19,8 @@ import {
 import { track } from '../utils/analytics'
 import { rateLimit, audit } from '../utils/security'
 import type { CryptoNetwork, Order } from '../store/types'
-import { isActiveCryptoInvoice, pickLatestActiveCryptoPending } from '../utils/pendingOrder'
+import { isPendingCryptoInvoice } from '../utils/pendingOrder'
+import { findResumablePendingOrder, resolveOrderProductId } from '../utils/orderResume'
 import PendingInvoiceGate from '../components/PendingInvoiceGate'
 
 
@@ -104,10 +105,16 @@ export default function ProductDetail() {
   const hasEnoughBalance = balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
 
-  const latestPendingCrypto = useMemo(
-    () => pickLatestActiveCryptoPending(orders),
-    [orders],
-  )
+  const latestPendingCrypto = useMemo(() => {
+    return (
+      orders.find(
+        (o) =>
+          isPendingCryptoInvoice(o) &&
+          o.kind === 'buy' &&
+          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
+      ) ?? null
+    )
+  }, [orders, product.id, products])
 
   const resumePendingBuy = (o: Order) => {
     const net = o.provider as CryptoNetwork
@@ -130,22 +137,30 @@ export default function ProductDetail() {
   useEffect(() => {
     if (!pendingOrder) return
     const o = orders.find((x) => x.id === pendingOrder.id)
-    if (!o || !isActiveCryptoInvoice(o)) {
+    if (!o || !isPendingCryptoInvoice(o)) {
       setPendingOrder(null)
       if (payStep === 'crypto_pay') setPayStep('crypto_net')
     }
   }, [orders, pendingOrder, payStep])
 
   useEffect(() => {
-    const st = location.state as { resumeCryptoPay?: boolean } | null
+    const st = location.state as { resumeCryptoPay?: boolean; resumeOrderId?: string } | null
     if (!st?.resumeCryptoPay || !product) return
-    const pending = pickLatestActiveCryptoPending(orders)
-    if (pending?.kind === 'buy' && pending.product_id === product.id) {
+    let pending =
+      findResumablePendingOrder(orders, st.resumeOrderId) ??
+      orders.find(
+        (o) =>
+          isPendingCryptoInvoice(o) &&
+          o.kind === 'buy' &&
+          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
+      ) ??
+      null
+    if (pending?.kind === 'buy') {
       setShowPayment(true)
       resumePendingBuy(pending)
     }
     navigate(location.pathname, { replace: true, state: {} })
-  }, [location.state, product?.id, orders, location.pathname, navigate])
+  }, [location.state, product?.id, orders, products, location.pathname, navigate])
 
   const similar = products
     .filter((p) => p.active && p.id !== product.id && p.cat_id === product.cat_id)
@@ -295,6 +310,7 @@ export default function ProductDetail() {
       quantity: qty,
       provider: selectedNet,
       created: createdIso,
+      expires_at: remote?.expires_at,
     })
     setPendingOrder({
       id: orderId,
@@ -703,7 +719,7 @@ export default function ProductDetail() {
                     context="product"
                     onContinue={() => {
                       if (latestPendingCrypto.kind === 'deposit') {
-                        navigate('/deposit')
+                        navigate('/deposit', { state: { resumeOrderId: latestPendingCrypto.id } })
                         setShowPayment(false)
                       } else {
                         resumePendingBuy(latestPendingCrypto)

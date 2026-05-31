@@ -44,7 +44,20 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_orders_network ON orders(network, status);
   CREATE INDEX IF NOT EXISTS idx_orders_uid ON orders(uid);
+`);
 
+for (const col of [
+  { name: "product_id", ddl: "INTEGER" },
+  { name: "product_title", ddl: "TEXT" },
+  { name: "quantity", ddl: "INTEGER" },
+] as const) {
+  const has = (db.prepare("PRAGMA table_info(orders)").all() as { name: string }[]).some(
+    (c) => c.name === col.name,
+  );
+  if (!has) db.exec(`ALTER TABLE orders ADD COLUMN ${col.name} ${col.ddl}`);
+}
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS transactions (
     tx_hash   TEXT PRIMARY KEY,
     network   TEXT NOT NULL,
@@ -99,12 +112,15 @@ export interface OrderRow {
   expires_at: string;
   paid_at: string | null;
   completed_at: string | null;
+  product_id: number | null;
+  product_title: string | null;
+  quantity: number | null;
 }
 
 const stmts = {
   insertOrder: db.prepare(`
-    INSERT INTO orders (id, uid, kind, amount_usd, amount_crypto, network, wallet, status, expires_at)
-    VALUES (@id, @uid, @kind, @amount_usd, @amount_crypto, @network, @wallet, 'pending', @expires_at)
+    INSERT INTO orders (id, uid, kind, amount_usd, amount_crypto, network, wallet, status, expires_at, product_id, product_title, quantity)
+    VALUES (@id, @uid, @kind, @amount_usd, @amount_crypto, @network, @wallet, 'pending', @expires_at, @product_id, @product_title, @quantity)
   `),
   getOrder: db.prepare(`SELECT * FROM orders WHERE id = ?`),
   getOrdersByUid: db.prepare(`SELECT * FROM orders WHERE uid = ? ORDER BY created_at DESC LIMIT 50`),
@@ -302,8 +318,16 @@ export const orders = {
     network: string;
     wallet: string;
     expires_at: string;
+    product_id?: number | null;
+    product_title?: string | null;
+    quantity?: number | null;
   }) {
-    stmts.insertOrder.run(o);
+    stmts.insertOrder.run({
+      ...o,
+      product_id: o.product_id ?? null,
+      product_title: o.product_title ?? null,
+      quantity: o.quantity ?? null,
+    });
   },
   get(id: string): OrderRow | undefined {
     return stmts.getOrder.get(id) as OrderRow | undefined;

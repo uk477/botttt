@@ -149,6 +149,16 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
   const id = generateOrderId(kind as "buy" | "deposit");
   const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
 
+  let productTitle: string | undefined;
+  let productQty: number | undefined;
+  if (kind === "buy" && product_id) {
+    const p = products.get(Number(product_id));
+    if (p) {
+      productTitle = p.title;
+      productQty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
+    }
+  }
+
   orders.create({
     id,
     uid: user.id,
@@ -158,6 +168,9 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
     network,
     wallet,
     expires_at: expiresAt,
+    product_id: kind === "buy" && product_id ? Number(product_id) : null,
+    product_title: productTitle ?? null,
+    quantity: productQty ?? null,
   });
 
   console.log(
@@ -169,16 +182,6 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
     : `${user.first_name} · ID ${user.id}`;
   const isDeposit = kind === "deposit";
   const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
-
-  let productTitle: string | undefined;
-  let productQty: number | undefined;
-  if (kind === "buy" && product_id) {
-    const p = products.get(Number(product_id));
-    if (p) {
-      productTitle = p.title;
-      productQty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
-    }
-  }
 
   notifyAdmin(
     isDeposit
@@ -274,6 +277,9 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     network: "balance",
     wallet: "",
     expires_at: expiresAt,
+    product_id: productId,
+    product_title: product.title,
+    quantity: qty,
   });
   orders.markPaid(id, "balance");
   orders.markCompleted(id);

@@ -92,16 +92,12 @@ export default function PaymentWaiting({
         haptic('error')
         return
       }
-      if (api.isEnabled()) {
-        try {
-          await api.cancelOrder(orderId)
-        } catch {
-          /* idempotent */
-        }
+      if (s === 'pending') {
+        setTimedOut(true)
+        setStatus('pending')
+        return
       }
-      setStatus('expired')
       setTimedOut(true)
-      useStore.getState().setOrderStatus(orderId, 'expired')
       haptic('error')
     })()
   }, [timer, orderId, haptic])

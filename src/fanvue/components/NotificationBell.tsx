@@ -6,7 +6,8 @@ import { useTelegram } from '../hooks/useTelegram'
 import OrderTrackingSheet from './OrderTrackingSheet'
 import CryptoLogo from './CryptoLogo'
 import { BellIcon } from './NavIcons'
-import { isActiveCryptoInvoice } from '../utils/pendingOrder'
+import { isPendingCryptoInvoice } from '../utils/pendingOrder'
+import { resolveOrderProductId } from '../utils/orderResume'
 import type { PaymentNotification, Order } from '../store/types'
 
 function timeAgo(iso: string, lang: string): string {
@@ -30,6 +31,7 @@ export default function NotificationBell() {
   const lang = useStore((s) => s.lang)
   const notifications = useStore((s) => s.notifications)
   const orders = useStore((s) => s.orders)
+  const products = useStore((s) => s.products)
   const markRead = useStore((s) => s.markNotificationsRead)
   const removeNotification = useStore((s) => s.removeNotification)
   const { haptic } = useTelegram()
@@ -37,7 +39,7 @@ export default function NotificationBell() {
   const unread = notifications.filter((n) => !n.read).length
   const hasPending = notifications.some((n) => {
     const o = orders.find((x) => x.id === n.orderId)
-    return o?.status === 'pending'
+    return o != null && isPendingCryptoInvoice(o)
   })
 
   // Ring animation when new unread arrives
@@ -72,15 +74,20 @@ export default function NotificationBell() {
   const handleNotifTap = (n: PaymentNotification) => {
     const order = orders.find((o) => o.id === n.orderId)
     const status = order?.status ?? 'pending'
-    if (status === 'pending' && order && isActiveCryptoInvoice(order)) {
+    if (status === 'pending' && order && isPendingCryptoInvoice(order)) {
       haptic('medium')
       setOpen(false)
       if (n.kind === 'deposit') {
-        navigate('/deposit')
-      } else if (order.product_id) {
-        navigate(`/product/${order.product_id}`, { state: { resumeCryptoPay: true } })
+        navigate('/deposit', { state: { resumeOrderId: order.id } })
       } else {
-        navigate('/orders')
+        const productId = resolveOrderProductId(order, products)
+        if (productId) {
+          navigate(`/product/${productId}`, {
+            state: { resumeCryptoPay: true, resumeOrderId: order.id },
+          })
+        } else {
+          navigate('/orders')
+        }
       }
       return
     }
