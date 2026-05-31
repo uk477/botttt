@@ -894,6 +894,12 @@ export default function ProductDetail() {
                       ? 'Мгновенное зачисление, без скрытых комиссий.'
                       : 'Instant credit, no hidden fees.'}
                   </p>
+                  <p className="fv-pay-build" aria-hidden={false}>
+                    {lang === 'ru' ? 'Клиент' : 'Client'}: {import.meta.env.VITE_APP_BUILD || '?'}
+                    {apiPay && balanceCheck?.appBuild
+                      ? ` · ${lang === 'ru' ? 'сервер' : 'server'}: ${balanceCheck.appBuild}`
+                      : ''}
+                  </p>
 
                   {apiPay && (
                     <p

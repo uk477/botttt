@@ -129,15 +129,24 @@ app.get("/api/test-notify", async (req, res) => {
 // ── Serve static SPA from dist/ ─────────────────────────────────────
 app.use(
   express.static(DIST, {
-    maxAge: "1y",
-    immutable: true,
+    maxAge: 0,
     setHeaders(res, filePath) {
-      if (filePath.endsWith(".html")) {
+      if (
+        filePath.endsWith(".html") ||
+        filePath.endsWith(".js") ||
+        filePath.endsWith(".css")
+      ) {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
       }
     },
   }),
 );
+
+app.get("/api/version", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ appBuild: APP_BUILD });
+});
 
 app.get("/{*splat}", (_req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
