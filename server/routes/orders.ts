@@ -220,6 +220,7 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
 // ── POST /api/purchase/balance — pay for product from account balance ─
 
 router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Response) => {
+  try {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) {
@@ -346,51 +347,8 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   }
 
   const title = product.title;
-  const time = new Date().toLocaleString("ru-RU", {
-    timeZone: "Europe/Moscow",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const balanceUserLabel = user.username
-    ? `@${user.username} · ID ${user.id}`
-    : `${user.first_name} · ID ${user.id}`;
-
-  adminLogs.add({
-    type: "payment",
-    uid: user.id,
-    username: user.username ?? null,
-    kind: "buy",
-    amount: total,
-    network: "balance",
-    status: "success",
-    product: title,
-  });
-
-  notifyAdmin(
-    adminBalanceOrder({
-      userLabel: balanceUserLabel,
-      product: title,
-      qty,
-      amountUsd: total,
-      orderId: id,
-      time,
-    }),
-  );
-
-  const lang = user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en";
-  notifyUserTemplated(
-    user.id,
-    "payment_received",
-    { amountUsd: total, orderId: id, productTitle: title, network: "balance", time },
-    lang,
-  );
-
-  const completedOrder = orders.get(id);
-  if (completedOrder) {
-    processReferralPurchase(completedOrder);
-  }
-
   const after = debitedRow ?? users.get(user.id);
+
   res.json({
     ok: true,
     order: {
@@ -410,6 +368,58 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     spent: after?.spent ?? 0,
     purchases: after?.purchases ?? 0,
   });
+
+  const time = new Date().toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const balanceUserLabel = user.username
+    ? `@${user.username} · ID ${user.id}`
+    : `${user.first_name} · ID ${user.id}`;
+
+  try {
+    adminLogs.add({
+      type: "payment",
+      uid: user.id,
+      username: user.username ?? null,
+      kind: "buy",
+      amount: total,
+      network: "balance",
+      status: "success",
+      product: title,
+    });
+    void notifyAdmin(
+      adminBalanceOrder({
+        userLabel: balanceUserLabel,
+        product: title,
+        qty,
+        amountUsd: total,
+        orderId: id,
+        time,
+      }),
+    );
+    const lang = user.language_code?.toLowerCase().startsWith("ru") ? "ru" : "en";
+    void notifyUserTemplated(
+      user.id,
+      "payment_received",
+      { amountUsd: total, orderId: id, productTitle: title, network: "balance", time },
+      lang,
+    );
+    const completedOrder = orders.get(id);
+    if (completedOrder) processReferralPurchase(completedOrder);
+  } catch (hookErr) {
+    console.error("[purchase/balance] post-success hooks failed:", hookErr);
+  }
+  } catch (err) {
+    console.error("[purchase/balance] fatal:", err);
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : "server_error",
+      });
+    }
+  }
 });
 
 // ── POST /api/order/:id/cancel — cancel own pending order ───────────

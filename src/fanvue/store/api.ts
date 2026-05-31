@@ -131,7 +131,15 @@ export const api = {
       error?: string
     }>('/api/purchase/balance', b)
     if (!data) return { ok: false as const, error: 'no_response' }
-    if (data.ok && data.order) return data
+    if (data.order && data.ok !== false) {
+      return {
+        ok: true as const,
+        order: data.order,
+        balance: data.balance,
+        spent: data.spent,
+        purchases: data.purchases,
+      }
+    }
     return {
       ok: false as const,
       error: data.error || 'unknown',

@@ -61,6 +61,10 @@ db.exec(`
 `);
 
 migrateColumns("orders", [
+  { name: "kind", ddl: "TEXT NOT NULL DEFAULT 'deposit'" },
+  { name: "amount_crypto", ddl: "REAL NOT NULL DEFAULT 0" },
+  { name: "wallet", ddl: "TEXT NOT NULL DEFAULT ''" },
+  { name: "expires_at", ddl: "TEXT" },
   { name: "product_id", ddl: "INTEGER" },
   { name: "product_title", ddl: "TEXT" },
   { name: "quantity", ddl: "INTEGER" },
@@ -696,6 +700,16 @@ try {
 } catch {
   /* column exists */
 }
+
+migrateColumns("admin_logs", [
+  { name: "kind", ddl: "TEXT" },
+  { name: "amount", ddl: "REAL" },
+  { name: "network", ddl: "TEXT" },
+  { name: "status", ddl: "TEXT" },
+  { name: "tx_hash", ddl: "TEXT" },
+  { name: "product", ddl: "TEXT" },
+  { name: "details", ddl: "TEXT" },
+]);
 
 const productStmts = {
   getAll: db.prepare(`SELECT * FROM products ORDER BY created_at DESC`),

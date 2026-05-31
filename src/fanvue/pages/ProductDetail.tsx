@@ -303,13 +303,16 @@ export default function ProductDetail() {
           purchaseLock.current = false
           return
         }
-        const detail =
+        const reason =
           typeof errMsg === 'string'
-            ? `: ${purchaseErrorText(errMsg)}`
+            ? purchaseErrorText(errMsg)
             : errMsg === 'no_response'
-              ? (lang === 'ru' ? ': нет ответа сервера (проверьте BOT_TOKEN и npm run build)' : ': no server response')
-              : ''
-        toast.show((lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase') + detail, 'error')
+              ? (lang === 'ru' ? 'нет ответа сервера' : 'no server response')
+              : (lang === 'ru' ? 'неизвестная ошибка' : 'unknown error')
+        toast.show(
+          lang === 'ru' ? `Ошибка оплаты: ${reason}` : `Payment error: ${reason}`,
+          'error',
+        )
         purchaseLock.current = false
         return
       }
