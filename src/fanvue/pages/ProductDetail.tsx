@@ -226,23 +226,60 @@ export default function ProductDetail() {
       toast.show(lang === 'ru' ? 'Слишком быстро, подождите' : 'Too fast, please wait', 'error')
       return
     }
-    if (api.isEnabled()) await refreshUser()
-    const freshBalance = useStore.getState().user?.balance ?? 0
-    if (freshBalance < total) {
-      toast.show(
-        lang === 'ru'
-          ? `Недостаточно средств (на сервере $${freshBalance.toFixed(2)})`
-          : `Insufficient balance ($${freshBalance.toFixed(2)} on server)`,
-        'error',
-      )
-      return
-    }
     purchaseLock.current = true
+
+    if (api.isEnabled()) {
+      const authRes = (await api.auth({})) as {
+        balance?: number
+        error?: string
+        uid?: number
+      } | null
+      if (!authRes || authRes.error || authRes.balance === undefined) {
+        toast.show(
+          lang === 'ru'
+            ? 'Сервер не принял Telegram-сессию. Проверьте BOT_TOKEN в .env (тот же бот, что открывает мини-апп).'
+            : 'Server rejected Telegram session. Check BOT_TOKEN in .env.',
+          'error',
+        )
+        purchaseLock.current = false
+        return
+      }
+      const serverBal = Number(authRes.balance)
+      useStore.setState((s) =>
+        s.user
+          ? {
+              user: {
+                ...s.user,
+                balance: serverBal,
+                uid: Number(authRes.uid ?? s.user.uid),
+              },
+            }
+          : s,
+      )
+      if (serverBal < total) {
+        toast.show(
+          lang === 'ru'
+            ? `На сервере $${serverBal.toFixed(2)}, нужно $${total.toFixed(2)}. Админка → Пользователи → зачислить баланс.`
+            : `Server balance $${serverBal.toFixed(2)}, need $${total.toFixed(2)}.`,
+          'error',
+        )
+        purchaseLock.current = false
+        return
+      }
+    } else {
+      const freshBalance = useStore.getState().user?.balance ?? 0
+      if (freshBalance < total) {
+        toast.show(lang === 'ru' ? 'Недостаточно средств' : 'Insufficient balance', 'error')
+        purchaseLock.current = false
+        return
+      }
+    }
+
     haptic('success')
     audit('purchase_balance', user.uid, { productId: product.id, qty, total })
 
     if (api.isEnabled()) {
-      let res: Awaited<ReturnType<typeof api.purchaseBalance>> | null = null
+      let res: Awaited<ReturnType<typeof api.purchaseBalance>>
       try {
         res = await api.purchaseBalance({
           product_id: product.id,

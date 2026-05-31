@@ -195,8 +195,7 @@ router.post("/api/admin/user/:uid/balance", (req: Request, res: Response) => {
   if (!amount || typeof amount !== "number" || amount <= 0 || amount > 100000) {
     res.status(400).json({ error: "Invalid amount" }); return;
   }
-  const user = users.get(uid);
-  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  users.upsert({ uid, username: null, full_name: null });
   const updated = users.credit(uid, amount);
   res.json({ ok: true, balance: updated?.balance ?? 0 });
 });

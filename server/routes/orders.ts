@@ -246,7 +246,8 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   }
 
   const product = products.get(productId);
-  if (!product || !product.active) {
+  if (!product || Number(product.active) !== 1) {
+    console.warn(`[purchase/balance] product missing/inactive id=${productId} uid=${user.id}`);
     res.status(404).json({ ok: false, error: "Product not found" });
     return;
   }
@@ -263,12 +264,20 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     return;
   }
 
-  const userRow = users.get(user.id);
-  if (!userRow || userRow.balance < total - 0.001) {
+  const userRow = users.upsert({
+    uid: user.id,
+    username: user.username ?? null,
+    full_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
+  });
+
+  if (userRow.balance < total - 0.001) {
+    console.warn(
+      `[purchase/balance] insufficient uid=${user.id} balance=${userRow.balance} need=${total} product=${productId}`,
+    );
     res.status(400).json({
       ok: false,
       error: "Insufficient balance",
-      balance: userRow?.balance ?? 0,
+      balance: userRow.balance,
       required: total,
     });
     return;
