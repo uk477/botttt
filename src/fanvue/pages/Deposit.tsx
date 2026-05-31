@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { QRCodeSVG } from 'qrcode.react'
 import PageTransition from '../components/PageTransition'
+import CryptoInvoiceOverlay from '../components/CryptoInvoiceOverlay'
 import Confetti from '../components/Confetti'
 import CryptoLogo from '../components/CryptoLogo'
 import { useToast } from '../components/Toast'
@@ -10,14 +10,12 @@ import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
-import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount, paymentUri, fetchOrderStatus, fetchWalletAddresses } from '../utils/payment'
-import { useCryptoRates, calcCryptoAmount, formatCryptoAmount, getLatestRates } from '../hooks/useCryptoRates'
+import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } from '../utils/payment'
 import { tgNotify } from '../utils/tgNotify'
 import { adminDepositCancelled, formatUserRef } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
 import { rateLimit, rateLimitUndo, isValidAmount, audit } from '../utils/security'
-import { paymentSecondsRemaining } from '../utils/paymentTimer'
-import type { CryptoNetwork, OrderStatus } from '../store/types'
+import type { CryptoNetwork } from '../store/types'
 import PendingInvoiceGate from '../components/PendingInvoiceGate'
 import {
   isPendingCryptoInvoice,
@@ -424,9 +422,14 @@ export default function Deposit() {
               transition={{ duration: 0.32, ease: EASE }}
             >
               <div className="dpz-amt-pill">
-                <span className="dpz-amt-pill-eye">{lang === 'ru' ? 'К зачислению' : 'To credit'}</span>
-                <strong>${numAmount.toFixed(2)}</strong>
+                <span className="dpz-amt-pill-eye">{lang === 'ru' ? 'Базовая сумма' : 'Base amount'}</span>
+                <strong>~${numAmount.toFixed(2)}</strong>
               </div>
+              <p className="t-xs t-muted" style={{ textAlign: 'center', marginBottom: 12 }}>
+                {lang === 'ru'
+                  ? 'На экране оплаты будет точная сумма с копейками для идентификации платежа'
+                  : 'The payment screen will show the exact amount with cents for payment matching'}
+              </p>
 
               <h1 className="dpz-h2">{lang === 'ru' ? 'Способ оплаты' : 'Payment method'}</h1>
 
@@ -434,41 +437,20 @@ export default function Deposit() {
 
               <button
                 className="dpz-cta"
-                disabled={!network}
+                disabled={!network || creating}
                 onClick={handleSelectNetwork}
               >
-                <span className="dpz-cta-t">{lang === 'ru' ? 'Создать счёт' : 'Create invoice'}</span>
+                <span className="dpz-cta-t">
+                  {creating
+                    ? (lang === 'ru' ? 'Создаём счёт…' : 'Creating…')
+                    : (lang === 'ru' ? 'Создать счёт' : 'Create invoice')}
+                </span>
                 <svg className="dpz-cta-ic" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
             </motion.section>
           )}
 
 
-          {step === 'pay' && cryptoOption && pendingOrder && (
-            <motion.section
-              key="pay" className="dpz-card dpz-card--pay"
-              initial={false}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.45, ease: EASE }}
-            >
-              <PayPanel
-                orderId={pendingOrder.id}
-                uniqueAmount={pendingOrder.uniqueAmount}
-                amountCrypto={pendingOrder.amountCrypto}
-                createdAt={pendingOrder.createdAt}
-                expiresAt={pendingOrder.expiresAt}
-                network={cryptoOption.id}
-                cryptoName={cryptoOption.name}
-                cryptoSymbol={cryptoOption.symbol}
-                cryptoColor={cryptoOption.color}
-                cryptoAddressFallback={pendingOrder.address || cryptoOption.address}
-                lang={lang}
-                onCancel={() => { cancelDeposit(); navigate('/profile') }}
-                onSuccess={handleSuccess}
-              />
-            </motion.section>
-          )}
 
           {step === 'success' && pendingOrder && (
             <motion.section
@@ -497,6 +479,24 @@ export default function Deposit() {
             </motion.section>
           )}
         </AnimatePresence>
+
+        <CryptoInvoiceOverlay
+          open={step === 'pay' && !!cryptoOption && !!pendingOrder}
+          title={lang === 'ru' ? 'Пополнение баланса' : 'Top up balance'}
+          orderId={pendingOrder?.id ?? ''}
+          uniqueAmount={pendingOrder?.uniqueAmount ?? 0}
+          amountCrypto={pendingOrder?.amountCrypto}
+          createdAt={pendingOrder?.createdAt}
+          expiresAt={pendingOrder?.expiresAt}
+          network={cryptoOption?.id ?? 'trc20'}
+          cryptoName={cryptoOption?.name ?? ''}
+          cryptoSymbol={cryptoOption?.symbol ?? ''}
+          cryptoColor={cryptoOption?.color ?? '#39ff63'}
+          cryptoAddressFallback={pendingOrder?.address || cryptoOption?.address || ''}
+          lang={lang}
+          onCancel={() => { void cancelDeposit(); navigate('/profile') }}
+          onSuccess={handleSuccess}
+        />
       </main>
     </PageTransition>
   )
@@ -610,323 +610,6 @@ export function NetworkPicker({
   )
 }
 
-/* ────────────────── PAY PANEL ────────────────── */
-const TOTAL_SECONDS = CONFIG.paymentTimeoutMinutes * 60
+/** @deprecated Use CryptoInvoicePanel */
+export { default as PayPanel } from '../components/CryptoInvoicePanel'
 
-export function PayPanel({
-  orderId, uniqueAmount, amountCrypto, createdAt, expiresAt, network,
-  cryptoName, cryptoSymbol, cryptoColor, cryptoAddressFallback,
-  lang, onCancel, onSuccess,
-}: {
-  orderId: string
-  uniqueAmount: number
-  /** Server-locked crypto amount from invoice — avoids rate refresh flicker. */
-  amountCrypto?: number
-  createdAt?: string
-  expiresAt?: string
-  network: CryptoNetwork
-  cryptoName: string
-  cryptoSymbol: string
-  cryptoColor: string
-  cryptoAddressFallback: string
-  lang: 'ru' | 'en'
-  onCancel: () => void
-  onSuccess: () => void
-}) {
-  const { haptic } = useTelegram()
-  const toast = useToast()
-  const [timer, setTimer] = useState(() =>
-    paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt }),
-  )
-  const [paused, setPaused] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [status, setStatus] = useState<OrderStatus>('pending')
-  const [stepN, setStepN] = useState(0)
-
-  const cryptoAddresses = useStore((s) => s.cryptoAddresses)
-  const qrOverrides = useStore((s) => s.qrOverrides)
-  const [runtimeAddress, setRuntimeAddress] = useState('')
-  const liveAddress = cryptoAddressFallback || runtimeAddress || cryptoAddresses[network] || CONFIG.addresses[network] || ''
-  const qrOverride = qrOverrides[network]
-
-  const rates = useCryptoRates()
-  const lockedCrypto = amountCrypto != null && amountCrypto > 0 ? amountCrypto : null
-  const [amountReady, setAmountReady] = useState(lockedCrypto != null)
-
-  useEffect(() => {
-    if (lockedCrypto != null) {
-      setAmountReady(true)
-      return
-    }
-    let cancelled = false
-    getLatestRates().then(() => {
-      if (!cancelled) setAmountReady(true)
-    })
-    return () => { cancelled = true }
-  }, [lockedCrypto, network, uniqueAmount])
-
-  const cryptoAmount = lockedCrypto ?? calcCryptoAmount(uniqueAmount, network, rates)
-  const qrData = amountReady ? paymentUri(network, liveAddress, cryptoAmount) : ''
-
-  useEffect(() => {
-    if (cryptoAddressFallback) return
-    let cancelled = false
-    fetchWalletAddresses().then((addresses) => {
-      if (!cancelled) setRuntimeAddress(addresses[network] || '')
-    })
-    return () => { cancelled = true }
-  }, [network, cryptoAddressFallback])
-
-  useEffect(() => {
-    const onVis = () => setPaused(document.visibilityState !== 'visible')
-    onVis()
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
-
-  useEffect(() => {
-    if (paused) return
-    const iv = window.setInterval(() => {
-      setTimer(paymentSecondsRemaining(TOTAL_SECONDS, { expiresAt, createdAt }))
-    }, 1000)
-    return () => clearInterval(iv)
-  }, [paused, expiresAt, createdAt])
-
-  const expiredRef = useRef(false)
-  useEffect(() => {
-    if (timer > 0 || expiredRef.current) return
-    expiredRef.current = true
-    void (async () => {
-      const s = await fetchOrderStatus(orderId)
-      if (s === 'paid' || s === 'completed') {
-        setStatus(s)
-        return
-      }
-      if (s === 'expired' || s === 'failed') {
-        setStatus(s)
-        useStore.getState().setOrderStatus(orderId, s)
-        haptic('error')
-        return
-      }
-      if (s === 'pending') {
-        setStatus('pending')
-        return
-      }
-      haptic('error')
-    })()
-  }, [timer, orderId, haptic])
-
-  // step reflects real status: 0 = waiting, 1 = detected/confirming, 2 = credited
-
-  const onSuccessRef = useRef(onSuccess)
-  useEffect(() => { onSuccessRef.current = onSuccess }, [onSuccess])
-  const hapticRef = useRef(haptic)
-  useEffect(() => { hapticRef.current = haptic }, [haptic])
-
-  useEffect(() => {
-    const tick = async () => {
-      const s = await fetchOrderStatus(orderId)
-      if (!s) return
-      setStatus(s)
-      if (s === 'paid') {
-        setStepN(1); hapticRef.current('light')
-      } else if (s === 'completed') {
-        setStepN(2); hapticRef.current('success')
-        setTimeout(() => onSuccessRef.current(), 1200)
-      } else if (s === 'expired' || s === 'failed') {
-        hapticRef.current('error')
-      }
-    }
-    tick() // immediate check
-    const iv = window.setInterval(tick, CONFIG.pollIntervalMs)
-    return () => clearInterval(iv)
-  }, [orderId])
-
-  const onCopy = async () => {
-    if (!liveAddress) {
-      toast.show(lang === 'ru' ? 'Адрес не настроен' : 'Address not configured', 'error')
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(liveAddress)
-    } catch {
-      const ta = document.createElement('textarea')
-      ta.value = liveAddress; ta.style.position = 'fixed'; ta.style.opacity = '0'
-      document.body.appendChild(ta); ta.select()
-      try { document.execCommand('copy') } catch { /* ignore */ }
-      document.body.removeChild(ta)
-    }
-    haptic('success'); setCopied(true)
-    toast.show(lang === 'ru' ? 'Адрес скопирован' : 'Address copied', 'success')
-    setTimeout(() => setCopied(false), 1800)
-  }
-
-  const onCopyAmount = async () => {
-    const value = formatCryptoAmount(cryptoAmount, network)
-    try { await navigator.clipboard.writeText(value) } catch { /* ignore */ }
-    haptic('success')
-    toast.show(lang === 'ru' ? `Сумма ${value} ${cryptoSymbol} скопирована` : `Amount ${value} ${cryptoSymbol} copied`, 'success')
-  }
-
-  const fmtTimer = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
-  const pct = useMemo(() => (timer / TOTAL_SECONDS), [timer])
-  const lowTime = timer < 60
-  const isPaid = status === 'paid' || status === 'completed'
-  const visibleAddress = liveAddress || (lang === 'ru' ? 'Адрес не настроен' : 'Address not configured')
-
-  return (
-    <div className="dpz-pay" style={{ ['--accent' as never]: cryptoColor }}>
-      <div className={`dpz-pay-pulse${lowTime ? ' is-low' : ''}`} aria-hidden>
-        <motion.div
-          className="dpz-pay-pulse-bar"
-          animate={{ width: `${pct * 100}%` }}
-          transition={{ duration: 0.8, ease: 'linear' }}
-        />
-      </div>
-
-      <div className="dpz-pay-hd">
-        <div className="dpz-pay-hd-l">
-          <CryptoLogo network={network} size={36} />
-          <div className="dpz-pay-hd-meta">
-            <strong>{cryptoName}</strong>
-          </div>
-        </div>
-        <div className="dpz-pay-hd-r">
-          <span className={`dpz-pay-status${isPaid ? ' is-paid' : ''}`}>
-            <i />
-            {isPaid
-              ? (lang === 'ru' ? 'Оплачено' : 'Paid')
-              : (lang === 'ru' ? 'Активно' : 'Active')}
-          </span>
-          <span className={`dpz-pay-clock${lowTime ? ' is-low' : ''}`}>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="12" cy="13" r="8" stroke="currentColor" strokeWidth="1.6"/>
-              <path d="M12 9v4l2.5 2.5M9 3h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
-            {fmtTimer(timer)}
-          </span>
-        </div>
-      </div>
-
-      <section className="dpz-pay-stage">
-        <span className="dpz-pay-stage-glow" aria-hidden />
-        <div className="dpz-pay-hero">
-          {!amountReady ? (
-            <div className="dpz-pay-hero-loading" aria-busy="true">
-              <span className="dpz-pay-hero-val dpz-pay-hero-val--pulse">···</span>
-            </div>
-          ) : (
-            <motion.button
-              type="button"
-              className="dpz-pay-hero-num dpz-pay-hero-num--btn"
-              onClick={onCopyAmount}
-              initial={false}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.36, ease: EASE }}
-              whileTap={{ scale: 0.97 }}
-              aria-label={lang === 'ru' ? 'Скопировать сумму' : 'Copy amount'}
-            >
-              <span className="dpz-pay-hero-val">{formatCryptoAmount(cryptoAmount, network)}</span>
-              <em>{cryptoSymbol}</em>
-            </motion.button>
-          )}
-          <span className="dpz-pay-hero-eye">
-            ${uniqueAmount.toFixed(2)}
-          </span>
-        </div>
-
-        <motion.div
-          className="dpz-pay-qr"
-          initial={false}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.1, duration: 0.4, ease: EASE }}
-        >
-          {qrOverride
-            ? <img src={qrOverride} alt="QR" className="dpz-pay-qr-img" />
-            : <QRCodeSVG value={qrData || liveAddress} size={164} bgColor="#ffffff" fgColor="#0a0a0c" level="M" />
-          }
-          <span className="dpz-pay-qr-corner dpz-pay-qr-corner--tl" aria-hidden />
-          <span className="dpz-pay-qr-corner dpz-pay-qr-corner--tr" aria-hidden />
-          <span className="dpz-pay-qr-corner dpz-pay-qr-corner--bl" aria-hidden />
-          <span className="dpz-pay-qr-corner dpz-pay-qr-corner--br" aria-hidden />
-          <motion.span
-            className="dpz-pay-scanline"
-            aria-hidden
-            animate={{ top: ['0%', '100%', '0%'] }}
-            transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        </motion.div>
-      </section>
-
-      <button className={`dpz-pay-addr${copied ? ' is-copied' : ''}`} onClick={onCopy}>
-        <div className="dpz-pay-addr-row">
-          <span className="dpz-pay-addr-eye">
-            {lang === 'ru' ? 'адрес для пополнения' : 'deposit address'}
-          </span>
-          <span className="dpz-pay-addr-action">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.span
-                key={copied ? 'ok' : 'cp'}
-                initial={false}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18 }}
-              >
-                {copied
-                  ? <><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4 10-10" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"/></svg>{lang === 'ru' ? 'Скопировано' : 'Copied'}</>
-                  : <><svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="11" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.8"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="1.8"/></svg>{lang === 'ru' ? 'Копировать' : 'Copy'}</>}
-              </motion.span>
-            </AnimatePresence>
-          </span>
-        </div>
-        <span className="dpz-pay-addr-text">{visibleAddress}</span>
-        <span className="dpz-pay-addr-full">{visibleAddress}</span>
-      </button>
-
-      <div className={`dpz-pay-flow${isPaid ? ' is-done' : ''}`} data-step={isPaid ? 2 : stepN}>
-        {[
-          lang === 'ru' ? 'Ожидание оплаты' : 'Waiting for payment',
-          lang === 'ru' ? 'Подтверждение в сети' : 'Network confirmation',
-          lang === 'ru' ? 'Зачислено' : 'Credited',
-        ].map((label, i) => {
-          const current = isPaid ? 2 : stepN
-          const state = i < current ? 'done' : i === current ? 'active' : 'idle'
-          return (
-            <div key={i} className={`dpz-pay-flow-step is-${state}`}>
-              <span className="dpz-pay-flow-dot" aria-hidden>
-                {state === 'done' ? (
-                  <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4 10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                ) : state === 'active' ? (
-                  <span className="dpz-pay-flow-pulse" />
-                ) : (
-                  <i>{i + 1}</i>
-                )}
-              </span>
-              <span className="dpz-pay-flow-label">{label}</span>
-              {i < 2 && <span className="dpz-pay-flow-line" aria-hidden />}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="dpz-pay-note">
-        <span className="dpz-pay-note-ico" aria-hidden>
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5m0 3.5v.01M4.5 19h15a1.5 1.5 0 0 0 1.32-2.22l-7.5-13.5a1.5 1.5 0 0 0-2.64 0l-7.5 13.5A1.5 1.5 0 0 0 4.5 19Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </span>
-        <span>
-          {lang === 'ru'
-            ? <>Переведите <button type="button" className="dpz-pay-note-amount" onClick={onCopyAmount}>ровно {formatCryptoAmount(cryptoAmount, network)} {cryptoSymbol}</button> на адрес выше — сумма уникальна и привязана к вашему счёту. Баланс пополнится автоматически после первого подтверждения сети.</>
-            : <>Send <button type="button" className="dpz-pay-note-amount" onClick={onCopyAmount}>exactly {formatCryptoAmount(cryptoAmount, network)} {cryptoSymbol}</button> to the address above — the amount is unique to your invoice. Your balance updates automatically after the first network confirmation.</>}
-        </span>
-      </div>
-
-      <button
-        className="dpz-cancel"
-        onClick={onCancel}
-        disabled={status === 'completed' || status === 'paid'}
-      >
-        {lang === 'ru' ? 'Отменить платёж' : 'Cancel payment'}
-      </button>
-    </div>
-  )
-}

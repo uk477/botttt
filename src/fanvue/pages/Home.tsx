@@ -2,6 +2,7 @@ import { useMemo, useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, useScroll, useTransform, useMotionValue, useSpring, animate, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
+import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import SalesHistorySheet from '../components/SalesHistorySheet'
 import { getOnline, getRecentSales, getTotalSales, formatAgo, buyerLabel, lotLabel, mskNow } from '../utils/salesGen'
@@ -51,7 +52,7 @@ export default function Home() {
 
   const online = useMemo(() => getOnline(new Date(now)), [now])
   const recentSales = useMemo(() => {
-    const fakes = getRecentSales(3, new Date(now))
+    const fakes = api.isEnabled() ? [] : getRecentSales(3, new Date(now))
     const reals = realSales.map((s) => {
       const h = ((s.uid * 2654435761) >>> 0).toString(16).toUpperCase().slice(0, 4)
       return {
@@ -63,7 +64,11 @@ export default function Home() {
       }
     })
     const seen = new Set<string>()
-    return [...reals, ...fakes]
+    const merged = [...reals, ...fakes]
+    if (api.isEnabled() && merged.length === 0) {
+      return getRecentSales(3, new Date(now))
+    }
+    return merged
       .sort((a, b) => b.ts - a.ts)
       .filter((s) => {
         const k = `${s.handle}-${s.ts}`

@@ -193,6 +193,8 @@ interface AppStore {
   bootstrapSession: () => Promise<void>
   /** Re-fetch balance, orders, admin data (safe on every mini-app reopen). */
   pullServerSession: () => Promise<void>
+  /** Referrals, calendar, home sales feed — always from server when API on. */
+  syncReferralsFromServer: () => Promise<boolean>
   setCart: (cart: CartItem | null) => void
   addOrder: (order: Order) => void
   addSupportMessage: (msg: SupportMessage) => void
@@ -439,27 +441,7 @@ export const useStore = create<AppStore>()(
             })
           }
 
-          const refBundle = await api.getReferrals()
-          if (refBundle && typeof refBundle === 'object') {
-            const patch: Partial<AppStore> = {}
-            if (Array.isArray(refBundle.referrals)) {
-              patch.referrals = refBundle.referrals
-            }
-            if (refBundle.refDailyLog && typeof refBundle.refDailyLog === 'object') {
-              patch.refDailyLog = refBundle.refDailyLog
-            }
-            if (refBundle.refReward && typeof refBundle.refReward === 'object') {
-              patch.refReward = {
-                month: String(refBundle.refReward.month ?? ''),
-                count: Number(refBundle.refReward.count ?? 0),
-                claimed: !!refBundle.refReward.claimed,
-              }
-            }
-            if (Array.isArray(refBundle.recentSales)) {
-              patch.realSales = refBundle.recentSales
-            }
-            if (Object.keys(patch).length > 0) set(patch)
-          }
+          await get().syncReferralsFromServer()
 
           if (get()._adminVerified) {
             await get().syncAdminData()
@@ -467,6 +449,29 @@ export const useStore = create<AppStore>()(
         } finally {
           set({ _serverPullInFlight: false })
         }
+      },
+
+      syncReferralsFromServer: async () => {
+        if (!api.isEnabled()) return false
+        const refBundle = await api.getReferrals()
+        if (!refBundle || typeof refBundle !== 'object') return false
+        set({
+          referrals: Array.isArray(refBundle.referrals) ? refBundle.referrals : [],
+          refDailyLog:
+            refBundle.refDailyLog && typeof refBundle.refDailyLog === 'object'
+              ? refBundle.refDailyLog
+              : {},
+          refReward:
+            refBundle.refReward && typeof refBundle.refReward === 'object'
+              ? {
+                  month: String(refBundle.refReward.month ?? ''),
+                  count: Number(refBundle.refReward.count ?? 0),
+                  claimed: !!refBundle.refReward.claimed,
+                }
+              : get().refReward,
+          realSales: Array.isArray(refBundle.recentSales) ? refBundle.recentSales : [],
+        })
+        return true
       },
 
       bootstrapSession: async () => {

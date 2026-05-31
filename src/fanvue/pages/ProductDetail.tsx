@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
-import { NetworkPicker, PayPanel } from './Deposit'
+import { NetworkPicker } from './Deposit'
+import CryptoInvoiceOverlay from '../components/CryptoInvoiceOverlay'
 import Confetti from '../components/Confetti'
 import DeliveryBlock, { ManualDeliveryBlock } from '../components/DeliveryBlock'
 import { useToast } from '../components/Toast'
@@ -619,7 +620,7 @@ export default function ProductDetail() {
         </motion.div>
       </main>
 
-      {showPayment && createPortal(
+      {showPayment && payStep !== 'crypto_pay' && createPortal(
         <AnimatePresence>
           <motion.div
             className="fv-sheet-overlay"
@@ -797,10 +798,11 @@ export default function ProductDetail() {
                     </button>
                     <h2>{lang === 'ru' ? 'Чем платим?' : 'How will you pay?'}</h2>
                   </div>
-                  <div className="fv-pay-amount-pill">
-                    <span>{lang === 'ru' ? 'К оплате' : 'Total'}</span>
-                    <strong>~${total.toFixed(2)}</strong>
-                  </div>
+                  <p className="t-xs t-muted" style={{ marginBottom: 12, textAlign: 'center' }}>
+                    {lang === 'ru'
+                      ? 'Точная сумма к переводу появится после создания счёта'
+                      : 'Exact transfer amount appears after creating the invoice'}
+                  </p>
                   <NetworkPicker selected={selectedNet} onSelect={(n) => { haptic('light'); setSelectedNet(n) }} lang={lang} />
                   <motion.button
                     className="dpz-cta fv-full"
@@ -816,74 +818,6 @@ export default function ProductDetail() {
                     </span>
                     <svg className="dpz-cta-ic" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </motion.button>
-                </motion.div>
-              )}
-
-              {invoiceCreating && (
-                <div className="fv-pay-creating" aria-busy="true">
-                  <p className="t-sm t-muted">{lang === 'ru' ? 'Формируем сумму к оплате…' : 'Preparing payment amount…'}</p>
-                </div>
-              )}
-
-              {payStep === 'crypto_pay' && cryptoOption && pendingOrder && !invoiceCreating && (
-                <motion.div
-                  className="dpz dpz--inline"
-                  initial={false}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.4, ease: EASE }}
-                >
-                  <PayPanel
-                    orderId={pendingOrder.id}
-                    uniqueAmount={pendingOrder.uniqueAmount}
-                    amountCrypto={pendingOrder.amountCrypto}
-                    createdAt={pendingOrder.createdAt}
-                    expiresAt={pendingOrder.expiresAt}
-                    network={cryptoOption.id}
-                    cryptoName={cryptoOption.name}
-                    cryptoSymbol={cryptoOption.symbol}
-                    cryptoColor={cryptoOption.color}
-                    cryptoAddressFallback={pendingOrder.address || cryptoOption.address}
-                    lang={lang}
-                    onCancel={() => {
-                      void (async () => {
-                        if (!pendingOrder) return
-                        if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
-                        setOrderStatus(pendingOrder.id, 'expired')
-                        tgNotify(
-                          adminOrderCancelled({
-                            userLabel: formatUserRef({
-                              username: user?.username,
-                              full_name: user?.full_name,
-                              uid: user?.uid,
-                            }),
-                            product: title,
-                            qty,
-                            amountUsd: pendingOrder.uniqueAmount,
-                            network: selectedNet || 'trc20',
-                            orderId: pendingOrder.id,
-                          }),
-                        )
-                        setPendingOrder(null)
-                        setSelectedNet(null)
-                        setPayStep('crypto_net')
-                      })()
-                    }}
-                    onSuccess={() => {
-                      if (pendingOrder && selectedNet) {
-                        setOrderStatus(pendingOrder.id, 'paid')
-                        if (product.delivery === 'auto') tryAutoFulfill(pendingOrder.id)
-                        addNotification({
-                          orderId: pendingOrder.id,
-                          kind: 'buy',
-                          amountUsd: pendingOrder.uniqueAmount,
-                          uniqueAmount: pendingOrder.uniqueAmount,
-                          network: selectedNet,
-                        })
-                        void refreshUser()
-                      }
-                      setPayStep('success')
-                    }}
-                  />
                 </motion.div>
               )}
 
@@ -986,6 +920,67 @@ export default function ProductDetail() {
         </AnimatePresence>,
         document.body,
       )}
+
+      <CryptoInvoiceOverlay
+        open={
+          showPayment &&
+          payStep === 'crypto_pay' &&
+          !!cryptoOption &&
+          !!pendingOrder &&
+          !invoiceCreating
+        }
+        title={title}
+        orderId={pendingOrder?.id ?? ''}
+        uniqueAmount={pendingOrder?.uniqueAmount ?? 0}
+        amountCrypto={pendingOrder?.amountCrypto}
+        createdAt={pendingOrder?.createdAt}
+        expiresAt={pendingOrder?.expiresAt}
+        network={cryptoOption?.id ?? 'trc20'}
+        cryptoName={cryptoOption?.name ?? ''}
+        cryptoSymbol={cryptoOption?.symbol ?? ''}
+        cryptoColor={cryptoOption?.color ?? '#39ff63'}
+        cryptoAddressFallback={pendingOrder?.address || cryptoOption?.address || ''}
+        lang={lang}
+        onCancel={() => {
+          void (async () => {
+            if (!pendingOrder) return
+            if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
+            setOrderStatus(pendingOrder.id, 'expired')
+            tgNotify(
+              adminOrderCancelled({
+                userLabel: formatUserRef({
+                  username: user?.username,
+                  full_name: user?.full_name,
+                  uid: user?.uid,
+                }),
+                product: title,
+                qty,
+                amountUsd: pendingOrder.uniqueAmount,
+                network: selectedNet || 'trc20',
+                orderId: pendingOrder.id,
+              }),
+            )
+            setPendingOrder(null)
+            setSelectedNet(null)
+            setPayStep('crypto_net')
+          })()
+        }}
+        onSuccess={() => {
+          if (pendingOrder && selectedNet) {
+            setOrderStatus(pendingOrder.id, 'paid')
+            if (product.delivery === 'auto') tryAutoFulfill(pendingOrder.id)
+            addNotification({
+              orderId: pendingOrder.id,
+              kind: 'buy',
+              amountUsd: pendingOrder.uniqueAmount,
+              uniqueAmount: pendingOrder.uniqueAmount,
+              network: selectedNet,
+            })
+            void refreshUser()
+          }
+          setPayStep('success')
+        }}
+      />
     </PageTransition>
   )
 }

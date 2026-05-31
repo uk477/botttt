@@ -303,6 +303,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
 
   const commitWithdraw = async () => {
     if (submittingRef.current) return
+    setAddressError(null)
     submittingRef.current = true
     setIsSubmitting(true)
     try {
@@ -333,7 +334,9 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
     syncSwipe(localMax, width)
     haptic('medium')
     clearCompleteTimer()
-    completeTimerRef.current = setTimeout(finishAnimatedSwipe, SWIPE_ANIM_MS)
+    completeTimerRef.current = setTimeout(() => {
+      if (isCompletingRef.current) finishAnimatedSwipe()
+    }, SWIPE_ANIM_MS + 80)
   }
 
   const pointerStartRef = useRef<{ id: number; startX: number; startOffset: number; trackW: number } | null>(null)
@@ -389,6 +392,8 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
 
   function handleThumbTransitionEnd(e: TransitionEvent<HTMLDivElement>) {
     if (e.propertyName !== 'transform') return
+    if (!isCompletingRef.current) return
+    clearCompleteTimer()
     finishAnimatedSwipe()
   }
 
@@ -513,7 +518,16 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
             </div>
 
             {/* Scrollable content */}
-            <div style={{ overflowY: 'auto', flex: 1, padding: '22px 20px 28px' }}>
+            <div
+              style={{
+                overflowY: step === 'confirm' ? 'auto' : 'auto',
+                flex: 1,
+                minHeight: 0,
+                padding: step === 'confirm' ? '22px 20px 12px' : '22px 20px 28px',
+                WebkitOverflowScrolling: 'touch',
+                overscrollBehavior: 'contain',
+              }}
+            >
               <AnimatePresence mode="wait">
                 {/* STEP: AMOUNT */}
                 {step === 'amount' && (
@@ -962,111 +976,34 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                       ))}
                     </div>
 
-                    {/* Swipe to confirm */}
-                    <div
-                      ref={trackRef}
-                      style={{
-                        position: 'relative',
-                        height: 66,
-                        borderRadius: 999,
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025))',
-                        border: '1px solid rgba(57,255,99,0.18)',
-                        overflow: 'hidden',
-                        marginBottom: 14,
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
-                        WebkitTouchCallout: 'none',
-                        touchAction: 'none',
-                        cursor: swipeLocked ? 'default' : isSwiping ? 'grabbing' : 'grab',
-                        opacity: isSubmitting ? 0.65 : 1,
-                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 42px rgba(0,0,0,0.35)',
-                      }}
-                      onPointerDown={handleSwipePointerDown}
-                      onPointerMove={handleSwipePointerMove}
-                      onPointerUp={handleSwipePointerEnd}
-                      onPointerCancel={handleSwipePointerEnd}
-                    >
-                      {/* progress fill */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: `${THUMB_W + THUMB_PAD + swipeProgress * Math.max(trackW - THUMB_W - THUMB_PAD, 0)}px`,
-                          background: `linear-gradient(90deg, rgba(57,255,99,0.24), rgba(57,255,99,0.72))`,
-                          transition: isSwiping ? 'none' : 'width 220ms cubic-bezier(.2,.8,.2,1)',
-                          boxShadow: swipeProgress > 0.08 ? '0 0 34px rgba(57,255,99,0.18)' : 'none',
-                        }}
-                      />
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 66,
-                          right: 22,
-                          top: '50%',
-                          height: 1,
-                          background: 'repeating-linear-gradient(90deg, rgba(255,255,255,0.16) 0 8px, transparent 8px 16px)',
-                          transform: 'translateY(-50%)',
-                          opacity: 0.55,
-                        }}
-                      />
-                      {/* label */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontFamily: DISPLAY,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: swipeProgress >= SWIPE_COMMIT ? INK : 'rgba(255,255,255,0.72)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.18em',
-                          pointerEvents: 'none',
-                          paddingLeft: 74,
-                          paddingRight: 24,
-                          whiteSpace: 'nowrap',
-                          opacity: swipeProgress >= SWIPE_AT_END ? 0 : 1,
-                          transition: 'color 160ms ease, opacity 160ms ease',
-                        }}
-                      >
-                        {isSubmitting
-                          ? (lang === 'ru' ? 'Отправка…' : 'Sending…')
-                          : swipeProgress >= SWIPE_COMMIT
-                            ? (lang === 'ru' ? 'Отпустите' : 'Release')
-                            : (lang === 'ru' ? 'Тяните вправо' : 'Slide right')}
-                      </div>
-                      {/* thumb */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 4,
-                          top: 4,
-                          width: THUMB_W,
-                          height: 58,
-                          borderRadius: '50%',
-                          background: `linear-gradient(180deg, #7dff94, ${GREEN})`,
-                          color: INK,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          pointerEvents: 'none',
-                          transform: `translateX(${swipeX}px)`,
-                          transition: isSwiping ? 'none' : 'transform 260ms cubic-bezier(.2,.8,.2,1)',
-                          boxShadow: '0 10px 26px rgba(57,255,99,0.36), inset 0 1px 0 rgba(255,255,255,0.6)',
-                        }}
-                        onTransitionEnd={handleThumbTransitionEnd}
-                      >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 12h14M13 6l6 6-6 6" />
-                        </svg>
-                      </div>
-                    </div>
+                    {addressError && (
+                      <p style={{ color: '#ff6b6b', fontSize: 13, marginBottom: 12, textAlign: 'center' }}>
+                        {addressError}
+                      </p>
+                    )}
 
-                    <button style={ghostBtn} onClick={() => setStep('address')}>
+                    <button
+                      type="button"
+                      style={{ ...primaryBtn(isSubmitting), marginTop: 8 }}
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setAddressError(null)
+                        void commitWithdraw()
+                      }}
+                    >
+                      {isSubmitting
+                        ? (lang === 'ru' ? 'Отправка…' : 'Sending…')
+                        : (lang === 'ru'
+                          ? `Подтвердить вывод $${amountNum.toFixed(2)}`
+                          : `Confirm withdrawal $${amountNum.toFixed(2)}`)}
+                    </button>
+
+                    <button
+                      type="button"
+                      style={{ ...ghostBtn, marginTop: 10 }}
+                      disabled={isSubmitting}
+                      onClick={() => setStep('address')}
+                    >
                       ← {lang === 'ru' ? 'Назад' : 'Back'}
                     </button>
                   </motion.div>

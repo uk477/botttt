@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
+import { api } from '../store/api'
 import type { Referral } from '../store/types'
 
 interface Props {
@@ -33,6 +35,23 @@ export default function ReferralList({ open, onClose }: Props) {
   const lang = useStore((s) => s.lang) as 'ru' | 'en'
   const user = useStore((s) => s.user)
   const allReferrals = useStore((s) => s.referrals)
+  const syncReferralsFromServer = useStore((s) => s.syncReferralsFromServer)
+  const [syncing, setSyncing] = useState(false)
+  const [syncFailed, setSyncFailed] = useState(false)
+
+  useEffect(() => {
+    if (!open || !api.isEnabled()) return
+    let cancelled = false
+    setSyncing(true)
+    setSyncFailed(false)
+    void syncReferralsFromServer().then((ok) => {
+      if (!cancelled) {
+        setSyncing(false)
+        if (!ok) setSyncFailed(true)
+      }
+    })
+    return () => { cancelled = true }
+  }, [open, syncReferralsFromServer])
 
   const activeRefs = allReferrals.filter((r) => r.purchaseCount > 0)
   const pendingCount = allReferrals.length - activeRefs.length
@@ -160,6 +179,16 @@ export default function ReferralList({ open, onClose }: Props) {
                   </div>
                 </div>
               </div>
+
+              {api.isEnabled() && (
+                <p style={{ textAlign: 'center', fontSize: 11, color: syncing ? GREEN : syncFailed ? '#ff6b6b' : 'rgba(255,255,255,0.35)', marginBottom: 14, fontFamily: MONO }}>
+                  {syncing
+                    ? (lang === 'ru' ? 'Синхронизация с сервером…' : 'Syncing from server…')
+                    : syncFailed
+                      ? (lang === 'ru' ? 'Сервер недоступен — обновите позже' : 'Server unavailable — try again later')
+                      : (lang === 'ru' ? 'Данные с сервера' : 'Synced from server')}
+                </p>
+              )}
 
               {/* Info banner — only purchasers count */}
               <div style={{

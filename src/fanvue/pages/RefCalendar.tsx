@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import PageTransition from '../components/PageTransition'
 import NotificationBell from '../components/NotificationBell'
 import { useStore } from '../store'
+import { api } from '../store/api'
 import { CONFIG } from '../config'
 import { SettingsIcon } from '../components/NavIcons'
 
@@ -90,6 +91,10 @@ export default function RefCalendar() {
   const lang         = useStore((s) => s.lang)
   const refDailyLog  = useStore((s) => s.refDailyLog)
   const user         = useStore((s) => s.user)
+
+  useEffect(() => {
+    if (api.isEnabled()) void useStore.getState().syncReferralsFromServer()
+  }, [])
 
   const now = new Date()
   const [viewYear,  setViewYear]  = useState(now.getFullYear())
