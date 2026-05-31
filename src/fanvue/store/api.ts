@@ -120,6 +120,28 @@ export const api = {
   getOrder:       (id: string)       => get(`/api/order/${id}`),
   createOrder:    (b: object)        => post('/api/order', b),
   cancelOrder:    (id: string)       => post(`/api/order/${encodeURIComponent(id)}/cancel`, {}),
+  checkPurchaseBalance: async (b: object) => {
+    const data = await post<{
+      ok?: boolean
+      error?: string
+      appBuild?: string
+      issues?: string[]
+      checks?: Record<string, boolean>
+      uid?: number
+      balance?: number
+      required?: number
+      expected?: number
+      received?: number
+      product_id?: number
+      product_price?: number
+      product_title?: string
+    }>('/api/purchase/balance/check', b)
+    if (!data) {
+      return { ok: false as const, issues: ['no_response'] as string[] }
+    }
+    return { ...data, ok: data.ok === true }
+  },
+
   purchaseBalance: async (b: object) => {
     const data = await post<{
       ok?: boolean
@@ -131,10 +153,13 @@ export const api = {
       error?: string
     }>('/api/purchase/balance', b)
     if (!data) return { ok: false as const, error: 'no_response' }
-    if (data.order && data.ok !== false) {
+    const orderId = data.order && typeof data.order === 'object' && data.order.id != null
+      ? String(data.order.id)
+      : ''
+    if (orderId && data.ok !== false) {
       return {
         ok: true as const,
-        order: data.order,
+        order: { ...data.order, id: orderId },
         balance: data.balance,
         spent: data.spent,
         purchases: data.purchases,

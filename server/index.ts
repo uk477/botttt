@@ -15,6 +15,7 @@ import referralsRouter from "./routes/referrals.js";
 import { startPoller } from "./blockchain/poller.js";
 import { isValidTronBase58Address } from "./blockchain/tronAddress.js";
 import { seedCatalogIfEmpty } from "./seedCatalog.js";
+import { APP_BUILD } from "./buildVersion.js";
 
 seedCatalogIfEmpty();
 
@@ -151,7 +152,8 @@ for (const net of Object.keys(ENV.addr)) {
 
 // ── Start ───────────────────────────────────────────────────────────
 app.listen(ENV.port, () => {
-  console.log(`\n  Server running on http://localhost:${ENV.port}`);
+  console.log(`\n  App build: ${APP_BUILD}`);
+  console.log(`  Server running on http://localhost:${ENV.port}`);
   console.log(`  Serving SPA from ${DIST}`);
   console.log(`  Admin hashes: ${ENV.adminHashes.length} configured`);
 

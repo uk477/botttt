@@ -20,16 +20,79 @@ import {
   formatUserRef,
 } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
-import { rateLimit, audit } from '../utils/security'
+import { rateLimit, audit, hasTelegramContext } from '../utils/security'
 import type { CryptoNetwork, Order } from '../store/types'
 import { isPendingCryptoInvoice } from '../utils/pendingOrder'
 import { findResumablePendingOrder, resolveOrderProductId } from '../utils/orderResume'
 import PendingInvoiceGate from '../components/PendingInvoiceGate'
+import { expectedOrderTotalUsd } from '../../../shared/orderPricing'
 
 
 const EASE = [0.22, 1, 0.36, 1] as const
 
 type PayStep = 'select' | 'pending_gate' | 'crypto_net' | 'crypto_pay' | 'success'
+
+type BalancePurchaseCheck = {
+  ok?: boolean
+  issues?: string[]
+  appBuild?: string
+  uid?: number
+  balance?: number
+  required?: number
+  expected?: number
+  product_price?: number
+}
+
+function formatBalanceCheckMessage(check: BalancePurchaseCheck | null, lang: 'ru' | 'en'): string {
+  const issues = check?.issues?.length ? check.issues : ['no_response']
+  const ru: Record<string, string> = {
+    bot_token_missing: 'на сервере нет BOT_TOKEN в .env',
+    init_data_empty: 'Telegram не передал сессию — закройте и откройте мини-апп',
+    session_invalid: 'BOT_TOKEN не от того бота (сессия не принята)',
+    maintenance: 'техработы',
+    invalid_product: 'неверный товар',
+    product_not_found: 'товара нет в базе сервера',
+    amount_mismatch: 'цена не совпадает с сервером',
+    out_of_stock: 'нет в наличии',
+    insufficient_balance: 'на сервере не хватает баланса',
+    no_response: 'нет ответа от API (npm run build + перезапуск сервера)',
+  }
+  const en: Record<string, string> = {
+    bot_token_missing: 'BOT_TOKEN missing in server .env',
+    init_data_empty: 'no Telegram session — reopen mini-app',
+    session_invalid: 'BOT_TOKEN wrong bot (session rejected)',
+    maintenance: 'maintenance mode',
+    invalid_product: 'invalid product',
+    product_not_found: 'product missing in server DB',
+    amount_mismatch: 'price mismatch with server',
+    out_of_stock: 'out of stock',
+    insufficient_balance: 'insufficient server balance',
+    no_response: 'no API response (rebuild + restart server)',
+  }
+  const map = lang === 'ru' ? ru : en
+  const parts = issues.map((i) => map[i] ?? i)
+  if (check?.uid != null && check.balance != null) {
+    parts.push(
+      lang === 'ru'
+        ? `ID ${check.uid}, на сервере $${check.balance.toFixed(2)}`
+        : `ID ${check.uid}, server $${check.balance.toFixed(2)}`,
+    )
+  }
+  if (check?.required != null) {
+    parts.push(lang === 'ru' ? `нужно $${check.required.toFixed(2)}` : `need $${check.required.toFixed(2)}`)
+  }
+  if (check?.expected != null && check.product_price != null && issues.includes('amount_mismatch')) {
+    parts.push(
+      lang === 'ru'
+        ? `цена в базе $${check.product_price}, сумма $${check.expected.toFixed(2)}`
+        : `DB price $${check.product_price}, total $${check.expected.toFixed(2)}`,
+    )
+  }
+  if (check?.appBuild) {
+    parts.push(lang === 'ru' ? `сборка ${check.appBuild}` : `build ${check.appBuild}`)
+  }
+  return parts.join(' · ')
+}
 
 const TIERS = [
   { min: 3, pct: 5 },
@@ -73,6 +136,8 @@ export default function ProductDetail() {
     address?: string
   } | null>(null)
   const [invoiceCreating, setInvoiceCreating] = useState(false)
+  const [balanceCheck, setBalanceCheck] = useState<BalancePurchaseCheck | null>(null)
+  const [balanceCheckLoading, setBalanceCheckLoading] = useState(false)
   const purchaseLock = useRef(false)
 
   useEffect(() => {
@@ -99,6 +164,50 @@ export default function ProductDetail() {
     void reconcilePendingOrders()
   }, [showPayment, reconcilePendingOrders])
 
+  useEffect(() => {
+    const p = products.find((x) => x.id === Number(id))
+    if (!showPayment || payStep !== 'select' || !api.isEnabled() || !p || !user) {
+      setBalanceCheck(null)
+      setBalanceCheckLoading(false)
+      return
+    }
+    if (!hasTelegramContext()) {
+      setBalanceCheck({ ok: false, issues: ['init_data_empty'] })
+      setBalanceCheckLoading(false)
+      return
+    }
+    const payTotal = expectedOrderTotalUsd(p.price, qty)
+    let cancelled = false
+    setBalanceCheckLoading(true)
+    void api
+      .checkPurchaseBalance({
+        product_id: p.id,
+        quantity: qty,
+        amount_usd: payTotal,
+      })
+      .then((r) => {
+        if (cancelled) return
+        setBalanceCheck(r)
+        setBalanceCheckLoading(false)
+        if (r?.ok && typeof r.balance === 'number') {
+          useStore.setState((s) =>
+            s.user
+              ? {
+                  user: {
+                    ...s.user,
+                    balance: Number(r.balance),
+                    uid: Number(r.uid ?? s.user.uid),
+                  },
+                }
+              : s,
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showPayment, payStep, id, products, qty, user?.uid])
+
   if (!product) {
     return (
       <div className="fv-detail-shell fv-detail-missing">
@@ -115,9 +224,10 @@ export default function ProductDetail() {
   const isOut = !isAuto && product.stock === 0
   const activeTier = [...TIERS].reverse().find((tier) => qty >= tier.min)
   const discountPct = activeTier?.pct ?? 0
-  const total = product.price * qty * (1 - discountPct / 100)
+  const total = expectedOrderTotalUsd(product.price, qty)
   const balance = user?.balance ?? 0
-  const hasEnoughBalance = balance >= total
+  const apiPay = api.isEnabled()
+  const hasEnoughBalance = apiPay ? balanceCheck?.ok === true : balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
 
   const latestPendingCrypto = useMemo(() => {
@@ -203,7 +313,8 @@ export default function ProductDetail() {
     const ru: Record<string, string> = {
       'Product not found': 'товар не найден на сервере — перезапустите сервер или добавьте лот в админке',
       'Insufficient balance': 'на сервере недостаточно баланса (зачислите в админке → Пользователи)',
-      'Invalid amount': 'цена не совпадает — обновите страницу',
+      'Invalid amount': 'цена не совпадает — обновите страницу (потяните вниз для обновления)',
+      'Purchase failed': 'ошибка на сервере при списании — напишите в поддержку',
       Unauthorized: 'сессия истекла — закройте и откройте мини-апп заново',
       'Out of stock': 'нет в наличии',
       maintenance: 'техработы',
@@ -211,7 +322,8 @@ export default function ProductDetail() {
     const en: Record<string, string> = {
       'Product not found': 'product missing on server',
       'Insufficient balance': 'insufficient server balance',
-      'Invalid amount': 'price mismatch — refresh page',
+      'Invalid amount': 'price mismatch — refresh the page',
+      'Purchase failed': 'server error while charging — contact support',
       Unauthorized: 'session expired — reopen mini-app',
       'Out of stock': 'out of stock',
       maintenance: 'maintenance',
@@ -227,111 +339,128 @@ export default function ProductDetail() {
       return
     }
     purchaseLock.current = true
+    const releaseLock = () => {
+      setTimeout(() => { purchaseLock.current = false }, 1500)
+    }
+
+    try {
+    let payTotal = total
+    let payProductId = product.id
 
     if (api.isEnabled()) {
-      const authRes = (await api.auth({})) as {
-        balance?: number
-        error?: string
-        uid?: number
-      } | null
-      if (!authRes || authRes.error || authRes.balance === undefined) {
+      const catalog = await api.getProducts()
+      const list = (catalog as { products?: { id: number; price: number; active?: boolean }[] } | null)
+        ?.products
+      const serverP = list?.find((p) => Number(p.id) === product.id)
+      if (serverP && Number(serverP.active) !== 0) {
+        payTotal = expectedOrderTotalUsd(Number(serverP.price), qty)
+        payProductId = Number(serverP.id)
+        if (Math.abs(serverP.price - product.price) > 0.001) {
+          useStore.setState((s) => ({
+            products: s.products.map((p) =>
+              p.id === product.id ? { ...p, price: Number(serverP.price) } : p,
+            ),
+          }))
+        }
+      }
+
+      const check = await api.checkPurchaseBalance({
+        product_id: payProductId,
+        quantity: qty,
+        amount_usd: payTotal,
+      })
+      if (!check?.ok) {
         toast.show(
           lang === 'ru'
-            ? 'Сервер не принял Telegram-сессию. Проверьте BOT_TOKEN в .env (тот же бот, что открывает мини-апп).'
-            : 'Server rejected Telegram session. Check BOT_TOKEN in .env.',
+            ? `Проверка: ${formatBalanceCheckMessage(check, lang)}`
+            : `Check: ${formatBalanceCheckMessage(check, lang)}`,
           'error',
         )
-        purchaseLock.current = false
+        setBalanceCheck(check)
         return
       }
-      const serverBal = Number(authRes.balance)
-      useStore.setState((s) =>
-        s.user
-          ? {
-              user: {
-                ...s.user,
-                balance: serverBal,
-                uid: Number(authRes.uid ?? s.user.uid),
-              },
-            }
-          : s,
-      )
-      if (serverBal < total) {
-        toast.show(
-          lang === 'ru'
-            ? `На сервере $${serverBal.toFixed(2)}, нужно $${total.toFixed(2)}. Админка → Пользователи → зачислить баланс.`
-            : `Server balance $${serverBal.toFixed(2)}, need $${total.toFixed(2)}.`,
-          'error',
+      if (typeof check.balance === 'number') {
+        useStore.setState((s) =>
+          s.user
+            ? {
+                user: {
+                  ...s.user,
+                  balance: Number(check.balance),
+                  uid: Number(check.uid ?? s.user.uid),
+                },
+              }
+            : s,
         )
-        purchaseLock.current = false
-        return
       }
     } else {
       const freshBalance = useStore.getState().user?.balance ?? 0
-      if (freshBalance < total) {
+      if (freshBalance < payTotal) {
         toast.show(lang === 'ru' ? 'Недостаточно средств' : 'Insufficient balance', 'error')
-        purchaseLock.current = false
         return
       }
     }
 
     haptic('success')
-    audit('purchase_balance', user.uid, { productId: product.id, qty, total })
+    audit('purchase_balance', user.uid, { productId: payProductId, qty, total: payTotal })
 
     if (api.isEnabled()) {
       let res: Awaited<ReturnType<typeof api.purchaseBalance>>
       try {
         res = await api.purchaseBalance({
-          product_id: product.id,
+          product_id: payProductId,
           quantity: qty,
-          amount_usd: total,
+          amount_usd: payTotal,
         })
       } catch {
         toast.show(lang === 'ru' ? 'Ошибка сети' : 'Network error', 'error')
-        purchaseLock.current = false
         return
       }
-      if (!res?.ok || !res.order) {
+      const orderIdFromRes = res?.order?.id != null ? String(res.order.id) : ''
+      if (!res?.ok || !orderIdFromRes) {
         const errMsg = res?.error
         if (errMsg === 'Insufficient balance' && typeof res.balance === 'number') {
           toast.show(
             lang === 'ru'
-              ? `На сервере $${res.balance.toFixed(2)}, нужно $${total.toFixed(2)}. Зачислите в админке → Пользователи.`
-              : `Server balance $${res.balance.toFixed(2)}, need $${total.toFixed(2)}.`,
+              ? `На сервере $${res.balance.toFixed(2)}, нужно $${payTotal.toFixed(2)}. Зачислите в админке → Пользователи.`
+              : `Server balance $${res.balance.toFixed(2)}, need $${payTotal.toFixed(2)}.`,
             'error',
           )
-          purchaseLock.current = false
           return
         }
-        const reason =
-          typeof errMsg === 'string'
-            ? purchaseErrorText(errMsg)
-            : errMsg === 'no_response'
-              ? (lang === 'ru' ? 'нет ответа сервера' : 'no server response')
-              : (lang === 'ru' ? 'неизвестная ошибка' : 'unknown error')
+        const recheck = await api.checkPurchaseBalance({
+          product_id: payProductId,
+          quantity: qty,
+          amount_usd: payTotal,
+        })
+        setBalanceCheck(recheck)
         toast.show(
-          lang === 'ru' ? `Ошибка оплаты: ${reason}` : `Payment error: ${reason}`,
+          lang === 'ru'
+            ? `Ошибка оплаты: ${formatBalanceCheckMessage(recheck ?? { issues: [typeof errMsg === 'string' ? errMsg : 'no_response'] }, lang)}`
+            : `Payment error: ${formatBalanceCheckMessage(recheck ?? { issues: [typeof errMsg === 'string' ? errMsg : 'no_response'] }, lang)}`,
           'error',
         )
-        purchaseLock.current = false
         return
       }
-      const o = res.order
-      const orderId = String(o.id)
+      const o = res.order!
+      const orderId = orderIdFromRes
       addOrder({
         id: orderId,
         orderNum: orders.filter((x) => x.kind === 'buy').length + 1,
         kind: 'buy',
         product_title: title,
-        product_id: product.id,
-        amount: total,
+        product_id: payProductId,
+        amount: payTotal,
         status: 'completed',
         quantity: qty,
         provider: 'balance',
         created: String(o.created_at ?? new Date().toISOString()),
         paid_at: String(o.paid_at ?? new Date().toISOString()),
       })
-      await refreshUser()
+      try {
+        await refreshUser()
+      } catch {
+        /* order already paid on server */
+      }
       if (product.delivery === 'auto') tryAutoFulfill(orderId)
     } else {
       const buyCount = orders.filter((o) => o.kind === 'buy').length + 1
@@ -382,7 +511,9 @@ export default function ProductDetail() {
     }
     toast.show(lang === 'ru' ? 'Заказ оплачен.' : 'Order paid.', 'success')
     setPayStep('success')
-    setTimeout(() => { purchaseLock.current = false }, 2000)
+    } finally {
+      releaseLock()
+    }
   }
 
   const handlePayCrypto = async () => {
@@ -764,10 +895,29 @@ export default function ProductDetail() {
                       : 'Instant credit, no hidden fees.'}
                   </p>
 
+                  {apiPay && (
+                    <p
+                      className={`fv-pay-diag${balanceCheck?.ok ? ' fv-pay-diag--ok' : balanceCheck && !balanceCheckLoading ? ' fv-pay-diag--err' : ''}`}
+                      role="status"
+                    >
+                      {balanceCheckLoading
+                        ? (lang === 'ru' ? 'Проверка сервера…' : 'Checking server…')
+                        : !hasTelegramContext()
+                          ? (lang === 'ru' ? 'Нет сессии Telegram — переоткройте мини-апп' : 'No Telegram session — reopen mini-app')
+                          : balanceCheck?.ok
+                            ? (lang === 'ru'
+                                ? `Сервер OK · ID ${balanceCheck.uid} · $${(balanceCheck.balance ?? 0).toFixed(2)} · сборка ${balanceCheck.appBuild ?? '?'}`
+                                : `Server OK · ID ${balanceCheck.uid} · $${(balanceCheck.balance ?? 0).toFixed(2)} · ${balanceCheck.appBuild ?? '?'}`)
+                            : balanceCheck
+                              ? (lang === 'ru' ? 'Проблема: ' : 'Issue: ') + formatBalanceCheckMessage(balanceCheck, lang)
+                              : (lang === 'ru' ? 'Нажмите «Оплатить» для проверки' : 'Tap Pay to run check')}
+                    </p>
+                  )}
+
                   <motion.button
                     className={`fv-pay-card fv-pay-card--balance${!hasEnoughBalance ? ' is-low' : ''}`}
-                    onClick={hasEnoughBalance ? handleBuyWithBalance : undefined}
-                    disabled={!hasEnoughBalance}
+                    onClick={apiPay || hasEnoughBalance ? handleBuyWithBalance : undefined}
+                    disabled={apiPay ? balanceCheckLoading : !hasEnoughBalance}
                     initial={false}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.06, duration: 0.4, ease: EASE }}

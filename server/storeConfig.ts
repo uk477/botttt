@@ -1,3 +1,4 @@
+import { APP_BUILD } from "./buildVersion.js";
 import { settings } from "./db.js";
 import { ENV } from "./env.js";
 
@@ -24,6 +25,7 @@ export function readMaintenanceFlag(): boolean {
 /** Public storefront config (addresses, links, texts, media). */
 export function getPublicStoreConfig() {
   return {
+    appBuild: APP_BUILD,
     maintenance: readMaintenanceFlag(),
     addresses: { ...ENV.addr },
     siteLinks: parseJsonSetting<Record<string, string>>("siteLinks"),

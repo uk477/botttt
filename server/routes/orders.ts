@@ -15,7 +15,7 @@ import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
 import { toSqliteUtc } from "../utils/sqliteTime.js";
 import { mapServerOrder } from "../../shared/orderMap.js";
 import { processReferralPurchase } from "../referrals.js";
-import { expectedOrderTotalUsd } from "../../shared/orderPricing.js";
+import { checkBalancePurchase } from "../purchaseBalanceCheck.js";
 
 const router = Router();
 
@@ -217,72 +217,64 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
   });
 });
 
+// ── POST /api/purchase/balance/check — diagnose without charging ───
+
+router.post("/api/purchase/balance/check", orderCreateLimiter, (req: Request, res: Response) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const { product_id, quantity = 1, amount_usd } = req.body as {
+    product_id?: number;
+    quantity?: number;
+    amount_usd?: number;
+  };
+  const result = checkBalancePurchase({
+    initData,
+    product_id: Number(product_id),
+    quantity: Number(quantity),
+    amount_usd: Number(amount_usd),
+  });
+  const status = result.ok
+    ? 200
+    : result.error === "Unauthorized"
+      ? 401
+      : result.error === "maintenance"
+        ? 503
+        : 400;
+  if (!result.ok) {
+    console.warn(
+      `[purchase/balance/check] uid=${result.uid ?? "?"} issues=${result.issues.join(",")} error=${result.error}`,
+    );
+  }
+  res.status(status).json(result);
+});
+
 // ── POST /api/purchase/balance — pay for product from account balance ─
 
 router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Response) => {
   try {
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
-  const user = verifyInitData(initData);
-  if (!user) {
-    res.status(401).json({ ok: false, error: "Unauthorized" });
-    return;
-  }
-
-  if (readMaintenanceFlag() && !isAdmin(user.id)) {
-    res.status(503).json({ ok: false, error: "maintenance" });
-    return;
-  }
-
   const { product_id, quantity = 1, amount_usd } = req.body as {
     product_id?: number;
     quantity?: number;
     amount_usd?: number;
   };
 
+  const pre = checkBalancePurchase({
+    initData,
+    product_id: Number(product_id),
+    quantity: Number(quantity),
+    amount_usd: Number(amount_usd),
+  });
+  if (!pre.ok) {
+    const status = pre.error === "Unauthorized" ? 401 : pre.error === "maintenance" ? 503 : 400;
+    res.status(status).json({ ok: false, ...pre });
+    return;
+  }
+
+  const user = verifyInitData(initData)!;
   const qty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
   const productId = Number(product_id);
-  if (!productId || productId <= 0) {
-    res.status(400).json({ ok: false, error: "Invalid product" });
-    return;
-  }
-
-  const product = products.get(productId);
-  if (!product || Number(product.active) !== 1) {
-    console.warn(`[purchase/balance] product missing/inactive id=${productId} uid=${user.id}`);
-    res.status(404).json({ ok: false, error: "Product not found" });
-    return;
-  }
-
-  const total = Number(amount_usd);
-  const expected = expectedOrderTotalUsd(product.price, qty);
-  if (!total || Math.abs(total - expected) > 0.02) {
-    res.status(400).json({ ok: false, error: "Invalid amount" });
-    return;
-  }
-
-  if (product.delivery === "auto" && product.stock < qty) {
-    res.status(400).json({ ok: false, error: "Out of stock" });
-    return;
-  }
-
-  const userRow = users.upsert({
-    uid: user.id,
-    username: user.username ?? null,
-    full_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
-  });
-
-  if (userRow.balance < total - 0.001) {
-    console.warn(
-      `[purchase/balance] insufficient uid=${user.id} balance=${userRow.balance} need=${total} product=${productId}`,
-    );
-    res.status(400).json({
-      ok: false,
-      error: "Insufficient balance",
-      balance: userRow.balance,
-      required: total,
-    });
-    return;
-  }
+  const product = products.get(productId)!;
+  const total = pre.expected!;
 
   const id = generateOrderId("buy");
   const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
@@ -337,10 +329,15 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
 
   if (!txOk) {
     const row = users.get(user.id);
+    const bal = row?.balance ?? 0;
+    const insufficient = bal < total - 0.001;
+    console.error(
+      `[purchase/balance] tx failed uid=${user.id} balance=${bal} need=${total} insufficient=${insufficient}`,
+    );
     res.status(400).json({
       ok: false,
-      error: "Insufficient balance",
-      balance: row?.balance ?? 0,
+      error: insufficient ? "Insufficient balance" : "Purchase failed",
+      balance: bal,
       required: total,
     });
     return;
