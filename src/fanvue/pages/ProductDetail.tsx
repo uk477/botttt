@@ -255,12 +255,22 @@ export default function ProductDetail() {
         return
       }
       if (!res?.ok || !res.order) {
-        const errMsg = (res as Record<string, unknown> | null)?.error
+        const errMsg = res?.error
+        if (errMsg === 'Insufficient balance' && typeof res.balance === 'number') {
+          toast.show(
+            lang === 'ru'
+              ? `На сервере $${res.balance.toFixed(2)}, нужно $${total.toFixed(2)}. Зачислите в админке → Пользователи.`
+              : `Server balance $${res.balance.toFixed(2)}, need $${total.toFixed(2)}.`,
+            'error',
+          )
+          purchaseLock.current = false
+          return
+        }
         const detail =
           typeof errMsg === 'string'
             ? `: ${purchaseErrorText(errMsg)}`
-            : res === null
-              ? (lang === 'ru' ? ': нет ответа сервера' : ': no server response')
+            : errMsg === 'no_response'
+              ? (lang === 'ru' ? ': нет ответа сервера (проверьте BOT_TOKEN и npm run build)' : ': no server response')
               : ''
         toast.show((lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase') + detail, 'error')
         purchaseLock.current = false

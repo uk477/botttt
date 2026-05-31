@@ -120,13 +120,25 @@ export const api = {
   getOrder:       (id: string)       => get(`/api/order/${id}`),
   createOrder:    (b: object)        => post('/api/order', b),
   cancelOrder:    (id: string)       => post(`/api/order/${encodeURIComponent(id)}/cancel`, {}),
-  purchaseBalance: (b: object)      => post<{
-    ok: boolean
-    order?: Record<string, unknown>
-    balance?: number
-    spent?: number
-    purchases?: number
-  }>('/api/purchase/balance', b),
+  purchaseBalance: async (b: object) => {
+    const data = await post<{
+      ok?: boolean
+      order?: Record<string, unknown>
+      balance?: number
+      required?: number
+      spent?: number
+      purchases?: number
+      error?: string
+    }>('/api/purchase/balance', b)
+    if (!data) return { ok: false as const, error: 'no_response' }
+    if (data.ok && data.order) return data
+    return {
+      ok: false as const,
+      error: data.error || 'unknown',
+      balance: data.balance,
+      required: data.required,
+    }
+  },
 
   getMessages:    ()                 => get<{ messages: unknown[]; tickets?: unknown[] }>('/api/support/messages'),
   openSupportTicket: (b: { id: string; category: string; summary?: string }) =>

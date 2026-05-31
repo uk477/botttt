@@ -15,6 +15,7 @@ import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
 import { toSqliteUtc } from "../utils/sqliteTime.js";
 import { mapServerOrder } from "../../shared/orderMap.js";
 import { processReferralPurchase } from "../referrals.js";
+import { expectedOrderTotalUsd } from "../../shared/orderPricing.js";
 
 const router = Router();
 
@@ -222,12 +223,12 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   const initData = (req.headers["x-telegram-init-data"] as string) || "";
   const user = verifyInitData(initData);
   if (!user) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ ok: false, error: "Unauthorized" });
     return;
   }
 
   if (readMaintenanceFlag() && !isAdmin(user.id)) {
-    res.status(503).json({ error: "maintenance" });
+    res.status(503).json({ ok: false, error: "maintenance" });
     return;
   }
 
@@ -240,25 +241,36 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   const qty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
   const productId = Number(product_id);
   if (!productId || productId <= 0) {
-    res.status(400).json({ error: "Invalid product" });
+    res.status(400).json({ ok: false, error: "Invalid product" });
     return;
   }
 
   const product = products.get(productId);
   if (!product || !product.active) {
-    res.status(404).json({ error: "Product not found" });
+    res.status(404).json({ ok: false, error: "Product not found" });
     return;
   }
 
   const total = Number(amount_usd);
-  const expected = Math.round(product.price * qty * 100) / 100;
+  const expected = expectedOrderTotalUsd(product.price, qty);
   if (!total || Math.abs(total - expected) > 0.02) {
-    res.status(400).json({ error: "Invalid amount" });
+    res.status(400).json({ ok: false, error: "Invalid amount" });
     return;
   }
 
   if (product.delivery === "auto" && product.stock < qty) {
-    res.status(400).json({ error: "Out of stock" });
+    res.status(400).json({ ok: false, error: "Out of stock" });
+    return;
+  }
+
+  const userRow = users.get(user.id);
+  if (!userRow || userRow.balance < total - 0.001) {
+    res.status(400).json({
+      ok: false,
+      error: "Insufficient balance",
+      balance: userRow?.balance ?? 0,
+      required: total,
+    });
     return;
   }
 
@@ -312,7 +324,13 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   })();
 
   if (!txOk) {
-    res.status(400).json({ error: "Insufficient balance" });
+    const row = users.get(user.id);
+    res.status(400).json({
+      ok: false,
+      error: "Insufficient balance",
+      balance: row?.balance ?? 0,
+      required: total,
+    });
     return;
   }
 
