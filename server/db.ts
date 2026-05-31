@@ -60,17 +60,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_uid ON orders(uid);
 `);
 
-for (const col of [
+migrateColumns("orders", [
   { name: "product_id", ddl: "INTEGER" },
   { name: "product_title", ddl: "TEXT" },
   { name: "quantity", ddl: "INTEGER" },
   { name: "delivery_data", ddl: "TEXT" },
-] as const) {
-  const has = (db.prepare("PRAGMA table_info(orders)").all() as { name: string }[]).some(
-    (c) => c.name === col.name,
-  );
-  if (!has) db.exec(`ALTER TABLE orders ADD COLUMN ${col.name} ${col.ddl}`);
-}
+  { name: "tx_hash", ddl: "TEXT" },
+  { name: "paid_at", ddl: "TEXT" },
+  { name: "completed_at", ddl: "TEXT" },
+]);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS transactions (

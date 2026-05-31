@@ -286,9 +286,11 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
   const id = generateOrderId("buy");
   const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
 
+  let debitedRow: ReturnType<typeof users.debitPurchase> = null;
   const txOk = db.transaction(() => {
     const debited = users.debitPurchase(user.id, total, qty);
     if (!debited) return false;
+    debitedRow = debited;
 
     orders.create({
       id,
@@ -388,6 +390,7 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     processReferralPurchase(completedOrder);
   }
 
+  const after = debitedRow ?? users.get(user.id);
   res.json({
     ok: true,
     order: {
@@ -403,9 +406,9 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
       paid_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
     },
-    balance: debited.balance,
-    spent: debited.spent,
-    purchases: debited.purchases,
+    balance: after?.balance ?? 0,
+    spent: after?.spent ?? 0,
+    purchases: after?.purchases ?? 0,
   });
 });
 
