@@ -50,6 +50,9 @@ export function verifyInitData(initData: string): TelegramUser | null {
 
     if (computed !== hash) return null;
 
+    const authDate = Number(params.get("auth_date") || 0);
+    if (!authDate || Date.now() / 1000 - authDate > 86400) return null;
+
     const userStr = params.get("user");
     if (!userStr) return null;
     return JSON.parse(userStr) as TelegramUser;

@@ -33,7 +33,7 @@ app.use(
 
 app.use(
   cors({
-    origin: ENV.corsOrigin || true,
+    origin: ENV.corsOrigin || false,
     methods: ["GET", "POST", "PATCH", "DELETE"],
     credentials: true,
   }),
@@ -41,7 +41,11 @@ app.use(
 
 function clientRateLimitKey(req: express.Request): string {
   const initData = req.headers["x-telegram-init-data"] as string;
-  if (initData) return initData.slice(0, 64);
+  if (initData) {
+    const u = verifyInitData(initData);
+    if (u) return `uid:${u.id}`;
+    return initData.slice(0, 64);
+  }
   const fwd = req.headers["x-forwarded-for"];
   const raw =
     (typeof fwd === "string" ? fwd.split(",")[0]?.trim() : null) ||
@@ -72,7 +76,7 @@ app.use(referralsRouter);
 
 // ── Game leaderboard ──────────────────────────────────────────────
 import { gameScores } from "./db.js";
-import { verifyInitData } from "./telegram.js";
+import { verifyInitData, isAdmin } from "./telegram.js";
 
 app.get("/api/game/leaderboard", (_req, res) => {
   res.json(gameScores.top());
@@ -103,24 +107,19 @@ app.get("/api/game/me", (req, res) => {
 
 // ── Health check ────────────────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, uptime: process.uptime() });
+  res.json({ ok: true });
 });
 
-// ── Test notification (admin only, for debugging) ───────────────────
-app.get("/api/test-notify", async (_req, res) => {
+// ── Test notification (admin only) ───────────────────────────────
+app.get("/api/test-notify", async (req, res) => {
+  const initData = (req.headers["x-telegram-init-data"] as string) || "";
+  const u = verifyInitData(initData);
+  if (!u || !isAdmin(u.id)) { res.status(401).json({ error: "Unauthorized" }); return; }
   const { notifyAdmin } = await import("./telegram.js");
   const ok = await notifyAdmin(
     "<b>Fanvue Market</b>\n\nТестовое уведомление. Канал доставки работает.",
   );
-  const rawWebApp = process.env.WEBAPP_URL || process.env.VITE_SITE_URL || "";
-  res.json({
-    ok,
-    adminChatId: ENV.adminChatId,
-    botTokenSet: !!ENV.botToken,
-    webAppUrl: ENV.webAppUrl || null,
-    webAppUrlRaw: rawWebApp || null,
-    webAppUrlOk: !!ENV.webAppUrl,
-  });
+  res.json({ ok });
 });
 
 // ── Serve static SPA from dist/ ─────────────────────────────────────

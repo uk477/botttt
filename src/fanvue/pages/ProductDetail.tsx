@@ -214,11 +214,18 @@ export default function ProductDetail() {
     audit('purchase_balance', user.uid, { productId: product.id, qty, total })
 
     if (api.isEnabled()) {
-      const res = await api.purchaseBalance({
-        product_id: product.id,
-        quantity: qty,
-        amount_usd: total,
-      })
+      let res: Awaited<ReturnType<typeof api.purchaseBalance>> | null = null
+      try {
+        res = await api.purchaseBalance({
+          product_id: product.id,
+          quantity: qty,
+          amount_usd: total,
+        })
+      } catch {
+        toast.show(lang === 'ru' ? 'Ошибка сети' : 'Network error', 'error')
+        purchaseLock.current = false
+        return
+      }
       if (!res?.ok || !res.order) {
         toast.show(lang === 'ru' ? 'Не удалось оформить заказ' : 'Could not complete purchase', 'error')
         purchaseLock.current = false
@@ -304,6 +311,7 @@ export default function ProductDetail() {
     setInvoiceCreating(true)
     haptic('medium')
     audit('purchase_crypto', user?.uid, { productId: product.id, qty, total, network: selectedNet })
+    try {
     await cancelAllPendingCrypto()
     await reconcilePendingOrders()
     const result = await createOrder({
@@ -353,6 +361,11 @@ export default function ProductDetail() {
     setPayStep('crypto_pay')
     void reconcilePendingOrders()
     setTimeout(() => { purchaseLock.current = false }, 2000)
+    } catch {
+      toast.show(lang === 'ru' ? 'Ошибка сети' : 'Network error', 'error')
+      purchaseLock.current = false
+      setInvoiceCreating(false)
+    }
   }
 
   const titleWords = title.split(/\s+/).filter(Boolean)

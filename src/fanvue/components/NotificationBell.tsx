@@ -332,9 +332,7 @@ export default function NotificationBell() {
       </AnimatePresence>
 
       {/* Order tracking sheet */}
-      {activeOrder && (
-        <OrderTrackingSheet order={activeOrder} onClose={() => setActiveOrder(null)} />
-      )}
+      <OrderTrackingSheet order={activeOrder} onClose={() => setActiveOrder(null)} />
 
     </>
   )

@@ -1731,9 +1731,9 @@ body {
 body::after { display: none; }
 #root { background: var(--fv-black); }
 .app { background: var(--fv-black); }
-.scroll-area { height: calc(100vh - var(--fv-nav-h)); height: calc(100dvh - var(--fv-nav-h)); }
-.scroll-area.vault-scroll { height: 100vh; height: 100dvh; }
-.scroll-area.no-nav { height: 100vh; height: 100dvh; }
+.scroll-area { height: calc(100vh - var(--fv-nav-h) - var(--tg-bottom, 0px)); height: calc(100dvh - var(--fv-nav-h) - var(--tg-bottom, 0px)); }
+.scroll-area.vault-scroll { height: calc(100vh - var(--tg-bottom, 0px)); height: calc(100dvh - var(--tg-bottom, 0px)); }
+.scroll-area.no-nav { height: calc(100vh - var(--tg-bottom, 0px)); height: calc(100dvh - var(--tg-bottom, 0px)); }
 
 /* Ensure content sits above the fixed .fv-bg layer (z-index: 0).
    Without an explicit z-index, .fv-bg can paint over .scroll-area in some
@@ -7834,7 +7834,7 @@ body.pay-sheet-open,
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 16px 18px 12px;
+  padding: 16px 18px 16px;
 }
 .cinv__amount-card {
   text-align: center;
@@ -7940,12 +7940,126 @@ body.pay-sheet-open,
 .cinv__foot {
   flex-shrink: 0;
   padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
   background: #0c0c0e;
 }
 .cinv__cancel {
   width: 100%;
   min-height: 48px;
+}
+
+/* Ref withdraw sheet */
+.rw-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 151;
+  display: flex;
+  flex-direction: column;
+  max-height: min(92dvh, calc(var(--tg-vh, 100dvh) - 8px));
+  height: min(92dvh, calc(var(--tg-vh, 100dvh) - 8px));
+  min-height: 0;
+  background: #050505;
+  border-radius: 24px 24px 0 0;
+  border-top: 1px solid rgba(57, 255, 99, 0.25);
+  overflow: hidden;
+}
+.rw-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 22px 20px 16px;
+}
+.rw-sheet__body--dock {
+  padding-bottom: 16px;
+}
+.rw-sheet__dock {
+  flex-shrink: 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: #050505;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rw-sheet__dock-error {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #ff6b6b;
+}
+.rw-sheet__dock-confirm {
+  width: 100%;
+  min-height: 48px;
+}
+.rw-sheet__dock-cancel {
+  width: 100%;
+  min-height: 44px;
+}
+
+/* Swipe to confirm */
+.swipe-confirm {
+  position: relative;
+  height: 58px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(57, 255, 99, 0.28);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: grab;
+}
+.swipe-confirm.is-committed {
+  pointer-events: none;
+}
+.swipe-confirm.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.swipe-confirm__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(57, 255, 99, 0.2), rgba(57, 255, 99, 0.55));
+  pointer-events: none;
+  border-radius: 999px 0 0 999px;
+}
+.swipe-confirm__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 64px;
+  padding-right: 16px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+.swipe-confirm__thumb {
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  width: 50px;
+  height: 50px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7dff94, #39ff63);
+  color: #050505;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(57, 255, 99, 0.35);
+  pointer-events: none;
 }
 
 /* Sales history calendar — portal overlay (fixed to viewport) */

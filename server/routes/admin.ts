@@ -29,6 +29,7 @@ import {
   type CategoryRow,
   type AdminLogRow,
 } from "../db.js";
+import db from "../db.js";
 import { ENV } from "../env.js";
 import { finalizeCompletedOrder } from "../orderFinalize.js";
 import { mapServerOrder } from "../../shared/orderMap.js";
@@ -716,7 +717,8 @@ router.post("/api/support/message", async (req: Request, res: Response) => {
 // ── Ref withdraw settings ────────────────────────────────────────
 router.get("/api/ref/settings", (_req: Request, res: Response) => {
   const raw = settings.get("refWithdrawNetworks");
-  const networks = raw ? JSON.parse(raw) : ["trc20", "btc"];
+  let networks: string[];
+  try { networks = raw ? JSON.parse(raw) : ["trc20", "btc"]; } catch { networks = ["trc20", "btc"]; }
   res.json({ networks });
 });
 
@@ -796,7 +798,13 @@ router.post("/api/ref/reward", refRewardLimiter, (req: Request, res: Response) =
       res.status(400).json({ error: "Need 10 qualifying referrals this month" });
       return;
     }
-    if (refDailyStats.isMonthlyClaimed(user.id, month)) {
+    const result = db.transaction(() => {
+      if (refDailyStats.isMonthlyClaimed(user.id, month)) return { already: true } as const;
+      const updated = users.accrueRef(user.id, 100, 0);
+      refDailyStats.markMonthlyClaimed(user.id, month);
+      return { already: false, updated } as const;
+    })();
+    if (result.already) {
       const row = users.get(user.id);
       res.json({
         ok: true,
@@ -806,8 +814,7 @@ router.post("/api/ref/reward", refRewardLimiter, (req: Request, res: Response) =
       });
       return;
     }
-    const updated = users.accrueRef(user.id, 100, 0);
-    refDailyStats.markMonthlyClaimed(user.id, month);
+    const updated = result.updated;
     res.json({
       ok: true,
       ref_balance: updated?.ref_balance ?? 0,

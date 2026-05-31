@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useT } from '../i18n'
+import { useStore } from '../store'
 import type { Order } from '../store/types'
 
 function DepositSvg() {
@@ -21,12 +22,11 @@ function OrderSvg() {
   )
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
-
 export default function OrderCard({ order, index = 0 }: { order: Order; index?: number }) {
   const t = useT()
+  const lang = useStore((s) => s.lang)
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
   const isDeposit = order.kind === 'deposit'
   const statusKey = `status_${order.status}` as Parameters<typeof t>[0]
 

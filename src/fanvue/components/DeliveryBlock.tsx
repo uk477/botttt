@@ -478,6 +478,7 @@ export default function DeliveryBlock({ data, orderId }: { data: string; orderId
             )}
 
             {/* Security instruction — opens external URL */}
+            {securityUrl && (
             <motion.a
               href={securityUrl}
               target="_blank"
@@ -505,6 +506,7 @@ export default function DeliveryBlock({ data, orderId }: { data: string; orderId
               </span>
               <ArrowUpRight size={16} />
             </motion.a>
+            )}
           </>
         )}
       </div>

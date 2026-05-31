@@ -25,13 +25,12 @@ function detectLang(code?: string): Lang {
 }
 
 router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
-  // Optional secret-token check
-  if (ENV.webhookSecret) {
-    const got = req.header("x-telegram-bot-api-secret-token") || "";
-    if (got !== ENV.webhookSecret) {
-      res.status(401).json({ ok: false });
-      return;
-    }
+  const got = req.header("x-telegram-bot-api-secret-token") || "";
+  if (!ENV.webhookSecret) {
+    console.warn("[webhook] TELEGRAM_WEBHOOK_SECRET not set — webhook is unprotected!");
+  } else if (got !== ENV.webhookSecret) {
+    res.status(401).json({ ok: false });
+    return;
   }
 
   // Respond fast; process async

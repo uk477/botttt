@@ -90,9 +90,13 @@ export default function CryptoInvoicePanel({
   }, [orderId])
 
   const liveCalc = lockedCrypto ?? calcCryptoAmount(uniqueAmount, network, rates)
-  if (amountReady && frozenCryptoRef.current == null) {
-    frozenCryptoRef.current = liveCalc
-  }
+
+  useEffect(() => {
+    if (amountReady && frozenCryptoRef.current == null) {
+      frozenCryptoRef.current = liveCalc
+    }
+  }, [amountReady, liveCalc])
+
   const cryptoAmount = frozenCryptoRef.current ?? liveCalc
   const qrData =
     amountReady && frozenCryptoRef.current != null

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
@@ -69,6 +69,10 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
   const { haptic } = useTelegram()
   const toast = useToast()
 
+  const lastOrderRef = useRef<Order | null>(null)
+  if (order) lastOrderRef.current = order
+  const stableOrder = order ?? lastOrderRef.current
+
   useEffect(() => {
     if (!order) return
     document.body.classList.add('order-sheet-open')
@@ -80,43 +84,42 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
     }
   }, [order])
 
-  if (!order) return null
+  if (!stableOrder) return null
 
-  const isDeposit = order.kind === 'deposit'
-  const statusKey = `status_${order.status}` as Parameters<typeof t>[0]
-  const statusColor = STATUS_COLOR[order.status] ?? 'rgba(255,255,255,0.6)'
-  const cryptoOpt = order.provider ? CRYPTO_OPTIONS.find((c) => c.id === order.provider) : undefined
-  const isCompleted = order.status === 'completed'
-  const isPaid = order.status === 'paid' || isCompleted
-  const isFailed = order.status === 'failed' || order.status === 'expired'
+  const o = stableOrder
+  const isDeposit = o.kind === 'deposit'
+  const statusKey = `status_${o.status}` as Parameters<typeof t>[0]
+  const statusColor = STATUS_COLOR[o.status] ?? 'rgba(255,255,255,0.6)'
+  const cryptoOpt = o.provider ? CRYPTO_OPTIONS.find((c) => c.id === o.provider) : undefined
+  const isCompleted = o.status === 'completed'
+  const isPaid = o.status === 'paid' || isCompleted
+  const isFailed = o.status === 'failed' || o.status === 'expired'
 
   const copyId = async () => {
-    try { await navigator.clipboard.writeText(order.id) } catch { /* ignore */ }
+    try { await navigator.clipboard.writeText(o.id) } catch { /* ignore */ }
     haptic('success')
     toast.show(lang === 'ru' ? 'ID скопирован' : 'ID copied')
   }
 
-  // Deterministic crunchy stats — derived from order.id so they stay stable.
   const hashSeed = (() => {
     let h = 2166136261
-    for (let i = 0; i < order.id.length; i++) {
-      h ^= order.id.charCodeAt(i)
+    for (let i = 0; i < o.id.length; i++) {
+      h ^= o.id.charCodeAt(i)
       h = (h * 16777619) >>> 0
     }
     return h
   })()
-  const confirmationsNeeded = order.provider === 'btc' ? 3
-    : order.provider === 'eth' || order.provider === 'erc20' || order.provider === 'usdc_eth' ? 12
-    : order.provider === 'sol' || order.provider === 'usdc_sol' ? 32
+  const confirmationsNeeded = o.provider === 'btc' ? 3
+    : o.provider === 'eth' || o.provider === 'erc20' || o.provider === 'usdc_eth' ? 12
+    : o.provider === 'sol' || o.provider === 'usdc_sol' ? 32
     : 20
   const confirmationsDone = isCompleted ? confirmationsNeeded
     : isPaid ? Math.max(1, Math.floor(confirmationsNeeded * 0.75))
-    : order.status === 'pending' ? Math.min(confirmationsNeeded - 1, hashSeed % confirmationsNeeded)
+    : o.status === 'pending' ? Math.min(confirmationsNeeded - 1, hashSeed % confirmationsNeeded)
     : 0
-  const blockHeight = (order.provider === 'btc' ? 850_000 : 19_500_000) + (hashSeed % 250_000)
-  
+  const blockHeight = (o.provider === 'btc' ? 850_000 : 19_500_000) + (hashSeed % 250_000)
 
-  const processedMs = order.paid_at ? new Date(order.paid_at).getTime() - new Date(order.created).getTime() : 0
+  const processedMs = o.paid_at ? new Date(o.paid_at).getTime() - new Date(o.created).getTime() : 0
   const processedLabel = processedMs > 0
     ? (() => {
         const s = Math.max(1, Math.round(processedMs / 1000))
@@ -148,10 +151,11 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
 
   const sheet = (
     <AnimatePresence>
+      {order && (
       <motion.div
         key="order-sheet-overlay"
         className="order-sheet-overlay"
-        initial={false}
+        initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
@@ -224,7 +228,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                   }}>
                     {isDeposit
                       ? (cryptoOpt ? cryptoOpt.name : t('order_deposit'))
-                      : (order.product_title ?? t('order_buy'))}
+                      : (o.product_title ?? t('order_buy'))}
                   </div>
                   <div style={{
                     fontFamily: MONO, fontSize: 10, fontWeight: 700,
@@ -250,14 +254,14 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                   display: 'inline-flex', alignItems: 'baseline', gap: 2,
                 }}>
                   <span style={{ fontSize: 16, opacity: 0.55 }}>{isDeposit ? '+$' : '$'}</span>
-                  {order.amount.toFixed(2)}
+                  {o.amount.toFixed(2)}
                 </div>
-                {order.quantity && order.quantity > 1 && (
+                {o.quantity && o.quantity > 1 && (
                   <div style={{
                     fontFamily: MONO, fontSize: 10, fontWeight: 700,
                     color: 'rgba(255,255,255,0.4)', marginTop: 4,
                   }}>
-                    × {order.quantity}
+                    × {o.quantity}
                   </div>
                 )}
               </div>
@@ -309,18 +313,18 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
             </div>
 
             {/* Delivery payload — only for paid/completed buy orders */}
-            {!isDeposit && order.deliveryData && isPaid && (
-              <DeliveryBlock data={order.deliveryData} orderId={order.id} />
+            {!isDeposit && o.deliveryData && isPaid && (
+              <DeliveryBlock data={o.deliveryData} orderId={o.id} />
             )}
-            {!isDeposit && !order.deliveryData && isPaid && !isFailed && (
+            {!isDeposit && !o.deliveryData && isPaid && !isFailed && (
               <ManualDeliveryBlock
-                orderId={order.id}
-                productTitle={order.product_title}
-                amount={order.amount}
-                createdAt={order.created}
+                orderId={o.id}
+                productTitle={o.product_title}
+                amount={o.amount}
+                createdAt={o.created}
               />
             )}
-            {order.status === 'pending' && isPendingCryptoInvoice(order) && (
+            {o.status === 'pending' && isPendingCryptoInvoice(o) && (
               <div style={{
                 background: 'rgba(255,210,74,0.08)',
                 border: '1px solid rgba(255,210,74,0.25)',
@@ -333,8 +337,8 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                   fontFamily: MONO, fontSize: 12, color: 'rgba(255,255,255,0.75)',
                   lineHeight: 1.6, marginBottom: 14,
                 }}>
-                  <div>${order.amount.toFixed(2)} · {cryptoOpt?.name ?? order.provider?.toUpperCase()}</div>
-                  <div style={{ opacity: 0.55, fontSize: 10 }}>#{order.id.slice(-8)}</div>
+                  <div>${o.amount.toFixed(2)} · {cryptoOpt?.name ?? o.provider?.toUpperCase()}</div>
+                  <div style={{ opacity: 0.55, fontSize: 10 }}>#{o.id.slice(-8)}</div>
                 </div>
                 <button
                   type="button"
@@ -344,26 +348,26 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                       onClose()
                       navigate('/deposit', {
                         state: {
-                          resumeOrderId: order.id,
+                          resumeOrderId: o.id,
                           returnTo: returnTo ?? '/deposits',
                         },
                       })
                       return
                     }
-                    const productId = resolveOrderProductId(order, products)
+                    const productId = resolveOrderProductId(o, products)
                     if (productId) {
                       onClose()
                       navigate(`/product/${productId}`, {
                         state: {
                           resumeCryptoPay: true,
-                          resumeOrderId: order.id,
+                          resumeOrderId: o.id,
                           returnTo: returnTo ?? '/orders',
                         },
                       })
                       return
                     }
                     if (cryptoOpt && onOpenFullscreenPay) {
-                      onOpenFullscreenPay(order)
+                      onOpenFullscreenPay(o)
                       onClose()
                       return
                     }
@@ -396,8 +400,8 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                   type="button"
                   onClick={() => {
                     void (async () => {
-                      if (api.isEnabled()) await api.cancelOrder(order.id)
-                      setOrderStatus(order.id, 'expired')
+                      if (api.isEnabled()) await api.cancelOrder(o.id)
+                      setOrderStatus(o.id, 'expired')
                       haptic('light')
                       toast.show(
                         lang === 'ru' ? 'Счёт отменён' : 'Invoice cancelled',
@@ -425,7 +429,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                 </button>
               </div>
             )}
-            {order.status === 'expired' && (
+            {o.status === 'expired' && (
               <div style={{
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.1)',
@@ -437,7 +441,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                   : 'Payment window expired. Create a new invoice from top-up or checkout.'}
               </div>
             )}
-            {order.status === 'pending' && isPendingCryptoInvoice(order) && !isPaymentWindowOpen(order) && (
+            {o.status === 'pending' && isPendingCryptoInvoice(o) && !isPaymentWindowOpen(o) && (
               <p style={{ fontSize: 11, color: AMBER, marginTop: -8, marginBottom: 12, lineHeight: 1.45 }}>
                 {lang === 'ru'
                   ? 'Таймер на экране оплаты может показывать 0:00 — если перевод уже отправили, дождитесь зачисления.'
@@ -479,7 +483,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                     color: GREEN, letterSpacing: '0.1em',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>
-                    {order.id}
+                    {o.id}
                   </span>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -491,23 +495,23 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
               {/* Created */}
               <SpecCell
                 label={lang === 'ru' ? 'СОЗДАН' : 'CREATED'}
-                value={formatDate(order.created, lang)}
-                sub={formatTimeFull(order.created)}
+                value={formatDate(o.created, lang)}
+                sub={formatTimeFull(o.created)}
               />
 
               {/* Paid */}
               <SpecCell
                 label={lang === 'ru' ? 'ОПЛАЧЕН' : 'CONFIRMED AT'}
-                value={order.paid_at ? formatDate(order.paid_at, lang) : '—'}
-                sub={order.paid_at ? formatTimeFull(order.paid_at) : (lang === 'ru' ? 'ожидание' : 'pending')}
-                muted={!order.paid_at}
+                value={o.paid_at ? formatDate(o.paid_at, lang) : '—'}
+                sub={o.paid_at ? formatTimeFull(o.paid_at) : (lang === 'ru' ? 'ожидание' : 'pending')}
+                muted={!o.paid_at}
               />
 
               {/* Processed */}
               <SpecCell
                 label={lang === 'ru' ? 'ОБРАБОТКА' : 'PROCESSED IN'}
                 value={processedLabel}
-                accent={order.paid_at ? GREEN : undefined}
+                accent={o.paid_at ? GREEN : undefined}
                 borderTop
               />
 
@@ -570,9 +574,9 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
 
 
               {/* TXID — full width */}
-              {order.txid && order.provider && EXPLORER[order.provider as CryptoNetwork] && (
+              {o.txid && o.provider && EXPLORER[o.provider as CryptoNetwork] && (
                 <a
-                  href={EXPLORER[order.provider as CryptoNetwork](order.txid)}
+                  href={EXPLORER[o.provider as CryptoNetwork](o.txid)}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -595,7 +599,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
                       fontFamily: MONO, fontSize: 10, color: 'rgba(255,255,255,0.55)',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {order.txid}
+                      {o.txid}
                     </span>
                   </div>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -640,6 +644,7 @@ export default function OrderDetailModal({ order, onClose, returnTo, onOpenFulls
           `}</style>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   )
 

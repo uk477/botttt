@@ -11,6 +11,7 @@ import { api } from '../store/api'
 import { useTelegram } from '../hooks/useTelegram'
 import { CONFIG } from '../config'
 import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } from '../utils/payment'
+import { getLatestRates } from '../hooks/useCryptoRates'
 import { tgNotify } from '../utils/tgNotify'
 import { adminDepositCancelled, formatUserRef } from '../../../shared/telegramTemplates'
 import { track } from '../utils/analytics'
@@ -161,7 +162,7 @@ export default function Deposit() {
 
   const cancelDeposit = async () => {
     if (!pendingOrder) return
-    if (api.isEnabled()) await api.cancelOrder(pendingOrder.id)
+    try { if (api.isEnabled()) await api.cancelOrder(pendingOrder.id) } catch { /* proceed with local cleanup */ }
     setOrderStatus(pendingOrder.id, 'expired')
     removeNotification(pendingOrder.id)
     setPendingOrder(null)
@@ -199,6 +200,7 @@ export default function Deposit() {
     setCreating(true)
     haptic('medium')
     audit('deposit_start', user.uid, { amount: numAmount, network })
+    try {
     await cancelAllPendingCrypto()
     await reconcilePendingOrders()
     const result = await createOrder({ uid: user.uid, kind: 'deposit', amount_usd: numAmount, network })
@@ -236,6 +238,10 @@ export default function Deposit() {
     addNotification({ orderId, kind: 'deposit', amountUsd: uniqueAmount, uniqueAmount, network })
     setCreating(false)
     setStep('pay')
+    } catch {
+      toast.show(lang === 'ru' ? 'Ошибка сети' : 'Network error', 'error')
+      setCreating(false)
+    }
   }
 
   const handleSuccess = () => {
@@ -494,7 +500,12 @@ export default function Deposit() {
           cryptoColor={cryptoOption?.color ?? '#39ff63'}
           cryptoAddressFallback={pendingOrder?.address || cryptoOption?.address || ''}
           lang={lang}
-          onCancel={() => { void cancelDeposit(); navigate('/profile') }}
+          onCancel={() => {
+            void (async () => {
+              await cancelDeposit()
+              setStep('amount')
+            })()
+          }}
           onSuccess={handleSuccess}
         />
       </main>

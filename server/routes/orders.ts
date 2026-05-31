@@ -8,7 +8,7 @@ import {
 } from "../../shared/telegramTemplates.js";
 import { verifyInitData, isAdmin, notifyAdmin, notifyUserTemplated } from "../telegram.js";
 import { readMaintenanceFlag } from "../storeConfig.js";
-import { orders, users, products, adminLogs } from "../db.js";
+import db, { orders, users, products, adminLogs } from "../db.js";
 import { ENV } from "../env.js";
 import { getPublicStoreConfig } from "../storeConfig.js";
 import { fetchLiveRates, usdToCrypto } from "../blockchain/rates.js";
@@ -262,52 +262,58 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     return;
   }
 
-  const debited = users.debitPurchase(user.id, total, qty);
-  if (!debited) {
-    res.status(400).json({ error: "Insufficient balance" });
-    return;
-  }
-
   const id = generateOrderId("buy");
   const expiresAt = toSqliteUtc(new Date(Date.now() + 30 * 60 * 1000));
-  orders.create({
-    id,
-    uid: user.id,
-    kind: "buy",
-    amount_usd: total,
-    amount_crypto: 0,
-    network: "balance",
-    wallet: "",
-    expires_at: expiresAt,
-    product_id: productId,
-    product_title: product.title,
-    quantity: qty,
-  });
-  orders.markPaid(id, "balance");
-  orders.markCompleted(id);
 
-  if (product.delivery === "auto" && product.stock >= qty) {
-    let autoItems: string[] = [];
-    try {
-      autoItems = JSON.parse(product.auto_items || "[]") as string[];
-    } catch {
-      autoItems = [];
-    }
-    products.upsert({
-      id: product.id,
-      cat_id: product.cat_id,
-      title: product.title,
-      title_en: product.title_en,
-      description: product.description,
-      desc_en: product.desc_en,
-      price: product.price,
-      delivery: product.delivery,
-      stock: Math.max(0, product.stock - qty),
-      active: !!product.active,
-      auto_items: autoItems,
-      pinned: !!product.pinned,
-      image_url: product.image_url,
+  const txOk = db.transaction(() => {
+    const debited = users.debitPurchase(user.id, total, qty);
+    if (!debited) return false;
+
+    orders.create({
+      id,
+      uid: user.id,
+      kind: "buy",
+      amount_usd: total,
+      amount_crypto: 0,
+      network: "balance",
+      wallet: "",
+      expires_at: expiresAt,
+      product_id: productId,
+      product_title: product.title,
+      quantity: qty,
     });
+    orders.markPaid(id, "balance");
+    orders.markCompleted(id);
+
+    if (product.delivery === "auto" && product.stock >= qty) {
+      let autoItems: string[] = [];
+      try {
+        autoItems = JSON.parse(product.auto_items || "[]") as string[];
+      } catch {
+        autoItems = [];
+      }
+      products.upsert({
+        id: product.id,
+        cat_id: product.cat_id,
+        title: product.title,
+        title_en: product.title_en,
+        description: product.description,
+        desc_en: product.desc_en,
+        price: product.price,
+        delivery: product.delivery,
+        stock: Math.max(0, product.stock - qty),
+        active: !!product.active,
+        auto_items: autoItems,
+        pinned: !!product.pinned,
+        image_url: product.image_url,
+      });
+    }
+    return true;
+  })();
+
+  if (!txOk) {
+    res.status(400).json({ error: "Insufficient balance" });
+    return;
   }
 
   const title = product.title;

@@ -54,7 +54,7 @@ export default function ReferralCard() {
 
   if (!user) return null
 
-  const refLink = botReferralLink(siteLinks.botUrl, user.uid, CONFIG.botUsername)
+  const refLink = botReferralLink(siteLinks.botUrl, String(user.uid), CONFIG.botUsername)
   const GOAL = 10
   const progress = Math.min(refReward.count, GOAL)
   const needed   = Math.max(0, GOAL - progress)
@@ -277,6 +277,7 @@ export default function ReferralCard() {
       </div>
 
       <RefWithdrawSheet open={showWithdraw} onClose={() => setShowWithdraw(false)} />
+      <ReferralList open={showReferrals} onClose={() => setShowReferrals(false)} />
     </>
   )
 }

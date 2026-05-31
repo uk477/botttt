@@ -1,4 +1,4 @@
-import { orders, users, adminLogs, type OrderRow } from "./db.js";
+import db, { orders, users, adminLogs, type OrderRow } from "./db.js";
 import { processReferralPurchase } from "./referrals.js";
 import {
   adminDepositConfirmed,
@@ -8,24 +8,29 @@ import { notifyAdmin, notifyUserTemplated } from "./telegram.js";
 
 /** After order is `paid`, mark completed, credit deposits, log, and notify. */
 export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolean {
-  const fresh = orders.get(order.id);
-  if (!fresh) return false;
+  const finalized = db.transaction(() => {
+    const fresh = orders.get(order.id);
+    if (!fresh) return false;
 
-  if (fresh.status === "pending") {
-    orders.markPaid(fresh.id, txHash || "manual");
-  }
+    if (fresh.status === "pending") {
+      orders.markPaid(fresh.id, txHash || "manual");
+    }
 
-  const afterPaid = orders.get(order.id);
-  if (!afterPaid || afterPaid.status !== "paid") return false;
+    const afterPaid = orders.get(order.id);
+    if (!afterPaid || afterPaid.status !== "paid") return false;
 
-  orders.markCompleted(order.id);
-  const done = orders.get(order.id);
-  if (!done || done.status !== "completed") return false;
+    orders.markCompleted(order.id);
+    const done = orders.get(order.id);
+    if (!done || done.status !== "completed") return false;
 
-  if (order.kind === "deposit") {
-    users.credit(order.uid, order.amount_usd);
-    console.log(`[finalize] CREDITED uid=${order.uid} +$${order.amount_usd}`);
-  }
+    if (order.kind === "deposit") {
+      users.credit(order.uid, order.amount_usd);
+      console.log(`[finalize] CREDITED uid=${order.uid} +$${order.amount_usd}`);
+    }
+    return true;
+  })();
+
+  if (!finalized) return false;
 
   const u = users.get(order.uid);
   const userLabel = u?.username

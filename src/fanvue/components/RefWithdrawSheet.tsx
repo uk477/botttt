@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type CSSProperties, type PointerEvent, type TransitionEvent } from 'react'
+import { useState, useRef, useEffect, type CSSProperties } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore, CRYPTO_OPTIONS } from '../store'
 import { api } from '../store/api'
@@ -7,6 +7,7 @@ import { tgNotify } from '../utils/tgNotify'
 import { adminRefWithdraw, formatUserRef } from '../../../shared/telegramTemplates'
 import { isValidCryptoAddress, isValidAmount, rateLimit, audit, sanitizeText } from '../utils/security'
 import CryptoLogo from './CryptoLogo'
+import SwipeToConfirm from './SwipeToConfirm'
 import type { CryptoNetwork, RefWithdrawal } from '../store/types'
 
 interface Props {
@@ -89,14 +90,6 @@ const STATUS_COLOR: Record<RefWithdrawal['status'], string> = {
   rejected: '#ff5050',
 }
 
-/** Release past this → commit (animate to end if not already there). */
-const SWIPE_COMMIT = 0.8
-/** Already at the end — submit immediately, no extra animation. */
-const SWIPE_AT_END = 0.99
-const SWIPE_ANIM_MS = 260
-const THUMB_W = 58
-const THUMB_PAD = 8
-
 function StatusLabel({ status, lang }: { status: RefWithdrawal['status']; lang: 'ru' | 'en' }) {
   const label =
     status === 'pending'
@@ -143,51 +136,10 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const [createdId, setCreatedId] = useState<string | null>(null)
 
-  const trackRef = useRef<HTMLDivElement>(null)
-
-  const swipeProgressRef = useRef(0)
-  const swipeXRef = useRef(0)
-  const isCompletingRef = useRef(false)
   const submittingRef = useRef(false)
-  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [trackW, setTrackW] = useState(0)
-  const [swipeX, setSwipeX] = useState(0)
-  const [isSwiping, setIsSwiping] = useState(false)
-  const [isCompleting, setIsCompleting] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const maxX = Math.max(trackW - THUMB_W - THUMB_PAD, 0)
-  const swipeProgress = maxX > 0 ? Math.min(swipeX / maxX, 1) : 0
-  const swipeLocked = isSubmitting || isCompleting
-
-  const getMaxX = (width: number) => Math.max(width - THUMB_W - THUMB_PAD, 0)
-
-  const syncSwipe = (x: number, width: number) => {
-    const localMax = getMaxX(width)
-    const pos = Math.min(Math.max(x, 0), localMax)
-    swipeXRef.current = pos
-    swipeProgressRef.current = localMax > 0 ? pos / localMax : 0
-    setSwipeX(pos)
-    return { pos, localMax, progress: swipeProgressRef.current }
-  }
-
-  const resetSwipe = () => {
-    if (completeTimerRef.current) {
-      clearTimeout(completeTimerRef.current)
-      completeTimerRef.current = null
-    }
-    isCompletingRef.current = false
-    setIsCompleting(false)
-    swipeProgressRef.current = 0
-    swipeXRef.current = 0
-    setSwipeX(0)
-  }
-
-  const clearCompleteTimer = () => {
-    if (completeTimerRef.current) {
-      clearTimeout(completeTimerRef.current)
-      completeTimerRef.current = null
-    }
-  }
+  const [swipeKey, setSwipeKey] = useState(0)
+  const [addressError, setAddressError] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -195,39 +147,18 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       setAmount('')
       setNetwork(null)
       setAddress('')
-      resetSwipe()
-      setIsSwiping(false)
+      setSwipeKey((k) => k + 1)
       setIsSubmitting(false)
+      setAddressError(null)
       submittingRef.current = false
     }
   }, [open])
-
-  useEffect(() => {
-    if (!open || !trackRef.current) return
-    const measure = () => setTrackW(trackRef.current?.offsetWidth ?? 0)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(trackRef.current)
-    return () => observer.disconnect()
-  }, [open, step])
-
-  useEffect(() => {
-    if (step === 'confirm') {
-      resetSwipe()
-      requestAnimationFrame(() => {
-        const w = trackRef.current?.offsetWidth ?? 0
-        if (w > 0) setTrackW(w)
-      })
-    }
-  }, [step])
 
   if (!user) return null
   const balance = user.ref_balance
   const MIN_WITHDRAW = 10
   const amountNum = parseFloat(amount) || 0
   const amountValid = amountNum >= MIN_WITHDRAW && amountNum <= balance
-
-  const [addressError, setAddressError] = useState<string | null>(null)
 
   async function handleSubmit(): Promise<boolean> {
     if (!network) return false
@@ -310,95 +241,13 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       const ok = await handleSubmit()
       if (!ok) {
         haptic('error')
-        resetSwipe()
+        setSwipeKey((k) => k + 1)
       }
     } finally {
       submittingRef.current = false
       setIsSubmitting(false)
     }
   }
-
-  const finishAnimatedSwipe = () => {
-    if (!isCompletingRef.current || submittingRef.current) return
-    isCompletingRef.current = false
-    setIsCompleting(false)
-    clearCompleteTimer()
-    void commitWithdraw()
-  }
-
-  const animateSwipeToEnd = (width: number) => {
-    const localMax = getMaxX(width)
-    isCompletingRef.current = true
-    setIsCompleting(true)
-    setIsSwiping(false)
-    syncSwipe(localMax, width)
-    haptic('medium')
-    clearCompleteTimer()
-    completeTimerRef.current = setTimeout(() => {
-      if (isCompletingRef.current) finishAnimatedSwipe()
-    }, SWIPE_ANIM_MS + 80)
-  }
-
-  const pointerStartRef = useRef<{ id: number; startX: number; startOffset: number; trackW: number } | null>(null)
-
-  function handleSwipePointerDown(e: PointerEvent<HTMLDivElement>) {
-    if (swipeLocked) return
-    e.stopPropagation()
-    const el = e.currentTarget as HTMLDivElement
-    const width = el.offsetWidth || trackRef.current?.offsetWidth || 0
-    if (width > 0 && width !== trackW) setTrackW(width)
-    try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
-    pointerStartRef.current = {
-      id: e.pointerId,
-      startX: e.clientX,
-      startOffset: swipeXRef.current,
-      trackW: width,
-    }
-    setIsSwiping(true)
-  }
-
-  function handleSwipePointerMove(e: PointerEvent<HTMLDivElement>) {
-    const start = pointerStartRef.current
-    if (!start || start.id !== e.pointerId || swipeLocked) return
-    e.stopPropagation()
-    if (e.cancelable) e.preventDefault()
-    const next = start.startOffset + (e.clientX - start.startX)
-    syncSwipe(next, start.trackW)
-  }
-
-  function handleSwipePointerEnd(e: PointerEvent<HTMLDivElement>) {
-    const start = pointerStartRef.current
-    if (!start || start.id !== e.pointerId) return
-    e.stopPropagation()
-    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId) } catch { /* ignore */ }
-    pointerStartRef.current = null
-    setIsSwiping(false)
-
-    if (swipeLocked) return
-
-    const { progress, localMax } = syncSwipe(swipeXRef.current, start.trackW)
-
-    if (progress >= SWIPE_COMMIT) {
-      if (progress >= SWIPE_AT_END) {
-        syncSwipe(localMax, start.trackW)
-        void commitWithdraw()
-      } else {
-        animateSwipeToEnd(start.trackW)
-      }
-    } else {
-      resetSwipe()
-    }
-  }
-
-  function handleThumbTransitionEnd(e: TransitionEvent<HTMLDivElement>) {
-    if (e.propertyName !== 'transform') return
-    if (!isCompletingRef.current) return
-    clearCompleteTimer()
-    finishAnimatedSwipe()
-  }
-
-  useEffect(() => () => clearCompleteTimer(), [])
-
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', {
@@ -428,7 +277,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       {open && (
         <>
           <motion.div
-            initial={false}
+            initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
@@ -437,30 +286,16 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
               inset: 0,
               background: 'rgba(0,0,0,0.7)',
               backdropFilter: 'blur(8px)',
-              zIndex: 100,
+              zIndex: 150,
             }}
           />
           <motion.div
+            className="rw-sheet"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-            style={{
-              position: 'fixed',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 101,
-              background: INK,
-              borderTop: `1px solid rgba(57,255,99,0.25)`,
-              borderRadius: '24px 24px 0 0',
-              maxHeight: '92vh',
-              display: 'flex',
-              flexDirection: 'column',
-              fontFamily: BODY,
-              color: '#fff',
-              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-            }}
+            style={{ fontFamily: BODY, color: '#fff' }}
           >
             {/* Handle + close */}
             <div
@@ -518,16 +353,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
             </div>
 
             {/* Scrollable content */}
-            <div
-              style={{
-                overflowY: step === 'confirm' ? 'auto' : 'auto',
-                flex: 1,
-                minHeight: 0,
-                padding: step === 'confirm' ? '22px 20px 12px' : '22px 20px 28px',
-                WebkitOverflowScrolling: 'touch',
-                overscrollBehavior: 'contain',
-              }}
-            >
+            <div className={`rw-sheet__body${step === 'confirm' ? ' rw-sheet__body--dock' : ''}`}>
               <AnimatePresence mode="wait">
                 {/* STEP: AMOUNT */}
                 {step === 'amount' && (
@@ -975,37 +801,6 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                         </div>
                       ))}
                     </div>
-
-                    {addressError && (
-                      <p style={{ color: '#ff6b6b', fontSize: 13, marginBottom: 12, textAlign: 'center' }}>
-                        {addressError}
-                      </p>
-                    )}
-
-                    <button
-                      type="button"
-                      style={{ ...primaryBtn(isSubmitting), marginTop: 8 }}
-                      disabled={isSubmitting}
-                      onClick={() => {
-                        setAddressError(null)
-                        void commitWithdraw()
-                      }}
-                    >
-                      {isSubmitting
-                        ? (lang === 'ru' ? 'Отправка…' : 'Sending…')
-                        : (lang === 'ru'
-                          ? `Подтвердить вывод $${amountNum.toFixed(2)}`
-                          : `Confirm withdrawal $${amountNum.toFixed(2)}`)}
-                    </button>
-
-                    <button
-                      type="button"
-                      style={{ ...ghostBtn, marginTop: 10 }}
-                      disabled={isSubmitting}
-                      onClick={() => setStep('address')}
-                    >
-                      ← {lang === 'ru' ? 'Назад' : 'Back'}
-                    </button>
                   </motion.div>
                 )}
 
@@ -1124,6 +919,58 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                 )}
               </AnimatePresence>
             </div>
+
+            {step === 'confirm' && (
+              <div className="rw-sheet__dock">
+                {addressError && (
+                  <p className="rw-sheet__dock-error">{addressError}</p>
+                )}
+                <SwipeToConfirm
+                  key={swipeKey}
+                  lang={lang}
+                  disabled={isSubmitting}
+                  loading={isSubmitting}
+                  onConfirm={() => {
+                    setAddressError(null)
+                    void commitWithdraw()
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rw-sheet__dock-confirm"
+                  style={primaryBtn(isSubmitting)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setAddressError(null)
+                    void commitWithdraw()
+                  }}
+                >
+                  {isSubmitting
+                    ? (lang === 'ru' ? 'Отправка…' : 'Sending…')
+                    : (lang === 'ru'
+                      ? `Подтвердить $${amountNum.toFixed(2)}`
+                      : `Confirm $${amountNum.toFixed(2)}`)}
+                </button>
+                <button
+                  type="button"
+                  className="rw-sheet__dock-cancel"
+                  style={ghostBtn}
+                  disabled={isSubmitting}
+                  onClick={() => setStep('address')}
+                >
+                  ← {lang === 'ru' ? 'Назад' : 'Back'}
+                </button>
+                <button
+                  type="button"
+                  className="rw-sheet__dock-cancel"
+                  style={{ ...ghostBtn, borderColor: 'rgba(255,80,80,0.35)', color: 'rgba(255,120,120,0.95)' }}
+                  disabled={isSubmitting}
+                  onClick={onClose}
+                >
+                  {lang === 'ru' ? 'Отменить вывод' : 'Cancel withdrawal'}
+                </button>
+              </div>
+            )}
 
             {/* Detail overlay */}
             <AnimatePresence>

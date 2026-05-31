@@ -85,7 +85,9 @@ export function sanitizeHtml(input: string): string {
  * Preserves newlines and tabs.
  */
 export function sanitizeText(input: string): string {
-  return input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+  return input
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, '')
 }
 
 // ── Crypto address format validation ──────────────────────────
@@ -186,7 +188,7 @@ export function isValidAmount(
     Number.isFinite(amount) &&
     amount >= min &&
     amount <= max &&
-    Math.round(amount * 1000) === amount * 1000 // max 3 decimal places
+    Math.abs(Math.round(amount * 1000) - amount * 1000) < 1e-9
   )
 }
 

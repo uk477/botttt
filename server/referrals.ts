@@ -1,4 +1,4 @@
-import { referrals, referralRewards, refDailyStats, users, orders, type OrderRow } from "./db.js";
+import db, { referrals, referralRewards, refDailyStats, users, orders, type OrderRow } from "./db.js";
 
 export const REF_PURCHASE_BONUS = 5;
 
@@ -40,21 +40,22 @@ export function processReferralPurchase(order: OrderRow): void {
   const ref = referrals.getByReferred(order.uid);
   if (!ref) return;
 
-  const wasFirst = ref.purchase_count === 0;
-  referrals.recordPurchase(ref.referred_uid, order.amount_usd);
-  referralRewards.insert({
-    order_id: order.id,
-    referrer_uid: ref.referrer_uid,
-    referred_uid: ref.referred_uid,
-    amount: REF_PURCHASE_BONUS,
-  });
+  db.transaction(() => {
+    const wasFirst = ref.purchase_count === 0;
+    referrals.recordPurchase(ref.referred_uid, order.amount_usd);
+    referralRewards.insert({
+      order_id: order.id,
+      referrer_uid: ref.referrer_uid,
+      referred_uid: ref.referred_uid,
+      amount: REF_PURCHASE_BONUS,
+    });
 
-  users.accrueRef(ref.referrer_uid, REF_PURCHASE_BONUS, wasFirst ? 1 : 0);
+    users.accrueRef(ref.referrer_uid, REF_PURCHASE_BONUS, wasFirst ? 1 : 0);
 
-  if (wasFirst) {
-    refDailyStats.increment(ref.referrer_uid, mskDateKey());
-  }
-
+    if (wasFirst) {
+      refDailyStats.increment(ref.referrer_uid, mskDateKey());
+    }
+  })();
 }
 
 export function getReferralPayloadForUid(referrerUid: number) {

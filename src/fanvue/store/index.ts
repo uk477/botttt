@@ -435,7 +435,7 @@ export const useStore = create<AppStore>()(
           }
 
           const refWRes = await api.refWithdrawals()
-          if (Array.isArray(refWRes) && refWRes.length > 0) {
+          if (Array.isArray(refWRes)) {
             set({
               refWithdrawals: refWRes as AppStore['refWithdrawals'],
             })
@@ -1388,7 +1388,7 @@ export const useStore = create<AppStore>()(
     }),
     {
       name: 'fanvue-app-v10',
-      version: 2,
+      version: 3,
       migrate: (state: unknown) => {
         const s = state as Partial<AppStore>
         if (s.user) {
@@ -1398,6 +1398,8 @@ export const useStore = create<AppStore>()(
         if (s.siteLinks) {
           s.siteLinks = { ...defaultSiteLinks(), ...s.siteLinks }
         }
+        if (!Array.isArray(s.orders)) s.orders = []
+        if (!Array.isArray(s.notifications)) s.notifications = []
         return s
       },
       partialize: (s) => ({
@@ -1424,6 +1426,8 @@ export const useStore = create<AppStore>()(
         photos: s.photos,
         siteContent: s.siteContent,
         siteLinks: s.siteLinks,
+        orders: s.orders,
+        notifications: s.notifications,
         refReward: s.refReward,
         refWithdrawals: s.refWithdrawals,
         refWithdrawNetworks: s.refWithdrawNetworks,

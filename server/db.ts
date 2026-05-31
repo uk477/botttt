@@ -282,10 +282,13 @@ export interface RefWithdrawalRow {
 
 export const refWithdrawals = {
   create(rw: { id: string; uid: number; amount: number; network: string; address: string }): boolean {
-    const debited = userStmts.debitRefBalance.run({ uid: rw.uid, amount: rw.amount });
-    if (debited.changes === 0) return false;
-    rwStmts.insert.run(rw);
-    return true;
+    const tx = db.transaction(() => {
+      const debited = userStmts.debitRefBalance.run({ uid: rw.uid, amount: rw.amount });
+      if (debited.changes === 0) return false;
+      rwStmts.insert.run(rw);
+      return true;
+    });
+    return tx();
   },
   get(id: string) {
     return rwStmts.get.get(id) as RefWithdrawalRow | undefined;
@@ -300,13 +303,16 @@ export const refWithdrawals = {
     rwStmts.approve.run({ id, txid });
   },
   reject(id: string, reason: string): boolean {
-    const rw = refWithdrawals.get(id);
-    if (!rw || rw.status !== "pending") return false;
-    const r = rwStmts.reject.run({ id, reason });
-    if (r.changes > 0) {
-      userStmts.creditRefBalance.run({ uid: rw.uid, amount: rw.amount });
-    }
-    return r.changes > 0;
+    const tx = db.transaction(() => {
+      const rw = refWithdrawals.get(id);
+      if (!rw || rw.status !== "pending") return false;
+      const r = rwStmts.reject.run({ id, reason });
+      if (r.changes > 0) {
+        userStmts.creditRefBalance.run({ uid: rw.uid, amount: rw.amount });
+      }
+      return r.changes > 0;
+    });
+    return tx();
   },
 };
 

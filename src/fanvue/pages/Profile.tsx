@@ -42,7 +42,7 @@ export default function Profile() {
 
   if (!user) return null
 
-  const refLink = botReferralLink(siteLinks.botUrl, user.uid, CONFIG.botUsername)
+  const refLink = botReferralLink(siteLinks.botUrl, String(user.uid), CONFIG.botUsername)
   const [whole, cents] = user.balance.toFixed(2).split('.')
   const canWithdraw = user.ref_balance >= 10
 

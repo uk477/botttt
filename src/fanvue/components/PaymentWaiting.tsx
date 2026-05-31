@@ -46,6 +46,11 @@ export default function PaymentWaiting({
   const pollRef = useRef<number | null>(null)
   const stepRef = useRef<number | null>(null)
 
+  const onCancelRef = useRef(onCancel)
+  const onSuccessRef = useRef(onSuccess)
+  useEffect(() => { onCancelRef.current = onCancel }, [onCancel])
+  useEffect(() => { onSuccessRef.current = onSuccess }, [onSuccess])
+
   const cryptoAddresses = useStore((s) => s.cryptoAddresses)
   const qrOverrides = useStore((s) => s.qrOverrides)
   const liveAddress = cryptoAddresses[crypto.id] || crypto.address
@@ -123,17 +128,17 @@ export default function PaymentWaiting({
         if (s === 'completed') {
           setStep(2)
           haptic('success')
-          setTimeout(onSuccess, 1200)
+          setTimeout(() => onSuccessRef.current(), 1200)
         }
       } else if (s === 'paid' || s === 'completed') {
         setStep(2)
         haptic('success')
-        setTimeout(onSuccess, 1200)
+        setTimeout(() => onSuccessRef.current(), 1200)
       }
     }
     pollRef.current = window.setInterval(tick, CONFIG.pollIntervalMs)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [orderId, kind, onCancel, onSuccess, haptic])
+  }, [orderId, kind, haptic])
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(liveAddress) } catch { /* ignore */ }

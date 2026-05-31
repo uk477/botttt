@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../store'
@@ -9,7 +9,7 @@ import { userDeliveryRequest } from '../../../shared/telegramTemplates'
 import type { Order } from '../store/types'
 
 interface Props {
-  order: Order
+  order: Order | null
   onClose: () => void
 }
 
@@ -106,33 +106,38 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
   const { haptic }          = useTelegram()
   const [showSupportPreview, setShowSupportPreview] = useState(false)
 
-  const alreadyForwarded = forwarded.includes(order.id)
+  const lastOrderRef = useRef<Order | null>(null)
+  if (order) lastOrderRef.current = order
+  const o = order ?? lastOrderRef.current
 
-  const isCompleted  = order.status === 'completed'
-  const isPaid       = order.status === 'paid'
+  if (!o) return null
 
-  const productTitle = order.product_title ?? ''
+  const alreadyForwarded = forwarded.includes(o.id)
+
+  const isCompleted  = o.status === 'completed'
+  const isPaid       = o.status === 'paid'
+
+  const productTitle = o.product_title ?? ''
   const isVerification =
     productTitle === 'Верификация вашего аккаунта' || productTitle === 'Verify your account'
 
-  const paidAt = order.paid_at ? new Date(order.paid_at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
-  const qtyStr = order.quantity && order.quantity > 1 ? ` × ${order.quantity}` : ''
+  const paidAt = o.paid_at ? new Date(o.paid_at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+  const qtyStr = o.quantity && o.quantity > 1 ? ` × ${o.quantity}` : ''
 
   const supportMsg = userDeliveryRequest(lang, {
-    product: order.product_title ?? (lang === 'ru' ? 'Товар' : 'Product'),
-    qty: order.quantity,
-    orderId: order.id,
-    amountUsd: order.amount,
+    product: o.product_title ?? (lang === 'ru' ? 'Товар' : 'Product'),
+    qty: o.quantity,
+    orderId: o.id,
+    amountUsd: o.amount,
     paidAt,
   })
 
   function handleSupport() {
-    if (alreadyForwarded) return
+    if (alreadyForwarded || !o) return
     haptic('success')
-    markOrderForwarded(order.id)
+    markOrderForwarded(o.id)
     addMsg({ id: Date.now(), sender: 'user', text: supportMsg, created: new Date().toISOString() })
-    // Verification service — append a beautifully styled intake card from the bot
-    const title = order.product_title ?? ''
+    const title = o.product_title ?? ''
     const isVerification =
       title === 'Верификация вашего аккаунта' || title === 'Verify your account'
     if (isVerification) {
@@ -140,7 +145,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
         id: Date.now() + 1,
         sender: 'bot',
         kind: 'system',
-        text: `verification_intake:${order.id}`,
+        text: `verification_intake:${o.id}`,
         created: new Date(Date.now() + 1).toISOString(),
       })
     }
@@ -156,9 +161,10 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
 
   return (
     <AnimatePresence>
+      {order && (
       <motion.div
         className="modal-overlay"
-        initial={false} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
       >
         <motion.div
@@ -173,7 +179,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
           <div className="row-between mb-4">
             <div>
               <div className="t-xs t-muted mb-1">{lang === 'ru' ? 'Отслеживание заказа' : 'Order Tracking'}</div>
-              <div className="t-lg fw-black">{order.product_title ?? (lang === 'ru' ? 'Ваш заказ' : 'Your Order')}</div>
+              <div className="t-lg fw-black">{o.product_title ?? (lang === 'ru' ? 'Ваш заказ' : 'Your Order')}</div>
             </div>
             <motion.button onClick={onClose} whileTap={{ scale: 0.9 }} style={{ color: 'var(--t-muted)', fontSize: 22, lineHeight: 1 }}>×</motion.button>
           </div>
@@ -182,21 +188,21 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
           <div className="card mb-5" style={{ padding: '14px 16px' }}>
             <div className="row-between mb-2">
               <span className="t-xs t-muted">ID</span>
-              <span className="t-xs fw-bold" style={{ fontFamily: 'monospace', color: 'var(--brand)' }}>{order.id}</span>
+              <span className="t-xs fw-bold" style={{ fontFamily: 'monospace', color: 'var(--brand)' }}>{o.id}</span>
             </div>
             <div className="row-between mb-2">
               <span className="t-xs t-muted">{lang === 'ru' ? 'Сумма' : 'Amount'}</span>
-              <span className="t-md fw-black">${order.amount.toFixed(2)}</span>
+              <span className="t-md fw-black">${o.amount.toFixed(2)}</span>
             </div>
-            {order.quantity && order.quantity > 1 && (
+            {o.quantity && o.quantity > 1 && (
               <div className="row-between mb-2">
                 <span className="t-xs t-muted">{lang === 'ru' ? 'Кол-во' : 'Qty'}</span>
-                <span className="t-sm fw-bold">{order.quantity}</span>
+                <span className="t-sm fw-bold">{o.quantity}</span>
               </div>
             )}
             <div className="row-between">
               <span className="t-xs t-muted">{lang === 'ru' ? 'Оплачен' : 'Paid at'}</span>
-              <span className="t-xs">{order.paid_at ? new Date(order.paid_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+              <span className="t-xs">{o.paid_at ? new Date(o.paid_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
             </div>
           </div>
 
@@ -204,7 +210,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
           <div className="t-xs t-muted fw-bold mb-3" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             {lang === 'ru' ? 'Статус выполнения' : 'Delivery status'}
           </div>
-          <StatusBar status={order.status} />
+          <StatusBar status={o.status} />
 
           {/* Completed state */}
           {isCompleted && (
@@ -229,7 +235,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
           )}
 
           {/* Pending — awaiting payment */}
-          {order.status === 'pending' && (
+          {o.status === 'pending' && (
             <div style={{
               background: 'rgba(255,210,74,0.08)',
               border: '1px solid rgba(255,210,74,0.25)',
@@ -362,6 +368,7 @@ export default function OrderTrackingSheet({ order, onClose }: Props) {
           )}
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   )
 }

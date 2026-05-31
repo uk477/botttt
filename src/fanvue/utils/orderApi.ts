@@ -76,11 +76,15 @@ export async function createOrder(payload: {
   }
 
   try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15_000)
     const res = await fetch(base, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(payload),
+      signal: controller.signal,
     })
+    clearTimeout(timeout)
 
     if (res.status === 401) {
       return { ok: false, code: 'unauthorized', message: await readErrorMessage(res) }
