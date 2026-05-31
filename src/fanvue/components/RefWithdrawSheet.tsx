@@ -7,7 +7,7 @@ import { tgNotify } from '../utils/tgNotify'
 import { adminRefWithdraw, formatUserRef } from '../../../shared/telegramTemplates'
 import { isValidCryptoAddress, isValidAmount, rateLimit, audit, sanitizeText } from '../utils/security'
 import CryptoLogo from './CryptoLogo'
-import SwipeToConfirm from './SwipeToConfirm'
+// SwipeToConfirm removed — using checkbox confirmation instead
 import type { CryptoNetwork, RefWithdrawal } from '../store/types'
 
 interface Props {
@@ -138,7 +138,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
 
   const submittingRef = useRef(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [swipeKey, setSwipeKey] = useState(0)
+  const [confirmed, setConfirmed] = useState(false)
   const [addressError, setAddressError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -147,7 +147,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       setAmount('')
       setNetwork(null)
       setAddress('')
-      setSwipeKey((k) => k + 1)
+      setConfirmed(false)
       setIsSubmitting(false)
       setAddressError(null)
       submittingRef.current = false
@@ -241,7 +241,7 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
       const ok = await handleSubmit()
       if (!ok) {
         haptic('error')
-        setSwipeKey((k) => k + 1)
+        setConfirmed(false)
       }
     } finally {
       submittingRef.current = false
@@ -925,21 +925,23 @@ export default function RefWithdrawSheet({ open, onClose }: Props) {
                 {addressError && (
                   <p className="rw-sheet__dock-error">{addressError}</p>
                 )}
-                <SwipeToConfirm
-                  key={swipeKey}
-                  lang={lang}
-                  disabled={isSubmitting}
-                  loading={isSubmitting}
-                  onConfirm={() => {
-                    setAddressError(null)
-                    void commitWithdraw()
-                  }}
-                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(e) => setConfirmed(e.target.checked)}
+                    disabled={isSubmitting}
+                    style={{ width: 20, height: 20, accentColor: '#39ff63', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 }}>
+                    {lang === 'ru' ? 'Я подтверждаю, что данные верны' : 'I confirm the data is correct'}
+                  </span>
+                </label>
                 <button
                   type="button"
                   className="rw-sheet__dock-confirm"
-                  style={primaryBtn(isSubmitting)}
-                  disabled={isSubmitting}
+                  style={primaryBtn(isSubmitting || !confirmed)}
+                  disabled={isSubmitting || !confirmed}
                   onClick={() => {
                     setAddressError(null)
                     void commitWithdraw()

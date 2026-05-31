@@ -7946,6 +7946,9 @@ body.pay-sheet-open,
   padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   background: #0c0c0e;
+  -webkit-tap-highlight-color: transparent;
+}
+.cinv__foot .cinv__cancel {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
