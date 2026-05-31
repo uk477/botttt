@@ -100,10 +100,12 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
     return;
   }
 
-  const { kind = "deposit", amount_usd, network } = req.body as {
+  const { kind = "deposit", amount_usd, network, product_id, quantity } = req.body as {
     kind?: "buy" | "deposit";
     amount_usd: number;
     network: string;
+    product_id?: number;
+    quantity?: number;
   };
 
   if (kind !== "buy" && kind !== "deposit") {
@@ -162,25 +164,39 @@ router.post("/api/order", orderCreateLimiter, async (req: Request, res: Response
     `[order] created ${id} | ${network} | $${uniqueUsd} | ${amountCrypto} crypto | uid=${user.id}`,
   );
 
-  const userName = user.username ? `@${user.username}` : user.first_name;
+  const userLabel = user.username
+    ? `@${user.username} · ID ${user.id}`
+    : `${user.first_name} · ID ${user.id}`;
   const isDeposit = kind === "deposit";
   const time = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit" });
+
+  let productTitle: string | undefined;
+  let productQty: number | undefined;
+  if (kind === "buy" && product_id) {
+    const p = products.get(Number(product_id));
+    if (p) {
+      productTitle = p.title;
+      productQty = Math.max(1, Math.min(99, Math.floor(Number(quantity) || 1)));
+    }
+  }
 
   notifyAdmin(
     isDeposit
       ? adminNewDeposit({
-          userLabel: userName,
+          userLabel,
           amountUsd: uniqueUsd,
           network,
           orderId: id,
           time,
         })
       : adminNewOrder({
-          userLabel: userName,
+          userLabel,
           amountUsd: uniqueUsd,
           network,
           orderId: id,
           time,
+          product: productTitle,
+          qty: productQty,
         }),
   );
 
@@ -292,7 +308,9 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
     hour: "2-digit",
     minute: "2-digit",
   });
-  const userName = user.username ? `@${user.username}` : user.first_name;
+  const balanceUserLabel = user.username
+    ? `@${user.username} · ID ${user.id}`
+    : `${user.first_name} · ID ${user.id}`;
 
   adminLogs.add({
     type: "payment",
@@ -307,7 +325,7 @@ router.post("/api/purchase/balance", orderCreateLimiter, (req: Request, res: Res
 
   notifyAdmin(
     adminBalanceOrder({
-      userLabel: userName,
+      userLabel: balanceUserLabel,
       product: title,
       qty,
       amountUsd: total,

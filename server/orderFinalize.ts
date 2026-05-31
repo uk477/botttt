@@ -27,6 +27,11 @@ export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolea
   }
 
   const u = users.get(order.uid);
+  const userLabel = u?.username
+    ? `@${u.username} · ID ${order.uid}`
+    : u?.full_name
+      ? `${u.full_name} · ID ${order.uid}`
+      : `ID ${order.uid}`;
   adminLogs.add({
     type: "payment",
     uid: order.uid,
@@ -54,12 +59,18 @@ export function finalizeCompletedOrder(order: OrderRow, txHash?: string): boolea
           amountUsd: order.amount_usd,
           network: order.network,
           uid: order.uid,
+          orderId: order.id,
+          userLabel,
+          txHash: txHash ?? afterPaid.tx_hash ?? undefined,
           time,
         })
       : adminPaymentConfirmed({
           amountUsd: order.amount_usd,
           network: order.network,
           uid: order.uid,
+          orderId: order.id,
+          userLabel,
+          txHash: txHash ?? afterPaid.tx_hash ?? undefined,
           time,
         }),
   );

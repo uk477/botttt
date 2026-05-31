@@ -13,7 +13,6 @@ import { createOrder, formatOrderError, generateOrderId, generateUniqueAmount } 
 import { tgNotify } from '../utils/tgNotify'
 import {
   adminBalancePurchase,
-  adminCryptoOrder,
   adminOrderCancelled,
   formatUserRef,
 } from '../../../shared/telegramTemplates'
@@ -198,18 +197,21 @@ export default function ProductDetail() {
       })
       updateBalance(-total)
       if (product.delivery === 'auto') tryAutoFulfill(orderId)
-      tgNotify(
-        adminBalancePurchase({
-          userLabel: formatUserRef({
-            username: user.username,
-            full_name: user.full_name,
-            uid: user.uid,
+      if (!api.isEnabled()) {
+        tgNotify(
+          adminBalancePurchase({
+            userLabel: formatUserRef({
+              username: user.username,
+              full_name: user.full_name,
+              uid: user.uid,
+            }),
+            product: title,
+            qty,
+            amountUsd: total,
+            orderId,
           }),
-          product: title,
-          qty,
-          amountUsd: total,
-        }),
-      )
+        )
+      }
     }
 
     addRealSale({
@@ -276,20 +278,6 @@ export default function ProductDetail() {
       expiresAt: remote?.expires_at,
       address: remote?.address,
     })
-    tgNotify(
-      adminCryptoOrder({
-        userLabel: formatUserRef({
-          username: user?.username,
-          full_name: user?.full_name,
-          uid: user?.uid,
-        }),
-        product: title,
-        qty,
-        amountUsd: uniqueAmount,
-        network: selectedNet,
-        orderId,
-      }),
-    )
     setPayStep('crypto_pay')
     setTimeout(() => { purchaseLock.current = false }, 2000)
   }

@@ -326,6 +326,22 @@ function adminNotice(title: string, lines: string[]): string {
   return body ? `<b>${BRAND}</b> · ${title}\n\n${body}` : `<b>${BRAND}</b> · ${title}`
 }
 
+/** Admin channel: section + headline + status (what happened / what to do). */
+function adminOpsNotice(
+  section: string,
+  headline: string,
+  status: string,
+  lines: string[],
+): string {
+  const body = lines.filter(Boolean).join('\n')
+  return `<b>${BRAND}</b>\n<b>${escapeHtml(section)}</b> · ${escapeHtml(headline)}\n<i>${escapeHtml(status)}</i>\n\n${body}`
+}
+
+function adminRow(label: string, value: string, code = false): string {
+  const v = code ? `<code>${escapeHtml(value)}</code>` : escapeHtml(value)
+  return `${label} · ${v}`
+}
+
 export function formatUserRef(user: {
   username?: string | null
   full_name?: string | null
@@ -336,6 +352,7 @@ export function formatUserRef(user: {
   return `${name} · ID ${id}`
 }
 
+/** Клиент открыл счёт на пополнение — деньги ещё не пришли. */
 export function adminNewDeposit(opts: {
   userLabel: string
   amountUsd: number
@@ -343,31 +360,49 @@ export function adminNewDeposit(opts: {
   orderId: string
   time?: string
 }): string {
-  return adminNotice('Новый депозит', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-    `Заявка: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  return adminOpsNotice(
+    'ПОПОЛНЕНИЕ',
+    'Счёт выставлен',
+    '⏳ Ожидает перевод в сети — на баланс ещё НЕ зачислено',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('К переводу', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      adminRow('Заявка', opts.orderId, true),
+      opts.time ? adminRow('Время', opts.time) : '',
+    ],
+  )
 }
 
+/** Клиент выставил счёт на покупку криптой — оплаты ещё нет. */
 export function adminNewOrder(opts: {
   userLabel: string
   amountUsd: number
   network: string
   orderId: string
   time?: string
+  product?: string
+  qty?: number
 }): string {
-  return adminNotice('Новый заказ', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-    `Заказ: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  const lines = [
+    adminRow('Клиент', opts.userLabel),
+    opts.product
+      ? adminRow('Товар', `${opts.product}${opts.qty && opts.qty > 1 ? ` × ${opts.qty}` : ''}`)
+      : '',
+    adminRow('К оплате', `$${opts.amountUsd.toFixed(2)}`, true),
+    adminRow('Сеть', formatPaymentAsset(opts.network)),
+    adminRow('Заказ', opts.orderId, true),
+    opts.time ? adminRow('Время', opts.time) : '',
+  ]
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Счёт на оплату',
+    '⏳ Ожидает крипто-оплату — заказ ещё НЕ оплачен, товар НЕ выдавать',
+    lines,
+  )
 }
 
+/** Покупка списана с баланса магазина — сразу оплачено. */
 export function adminBalanceOrder(opts: {
   userLabel: string
   product: string
@@ -376,41 +411,68 @@ export function adminBalanceOrder(opts: {
   orderId: string
   time?: string
 }): string {
-  return adminNotice('Заказ (баланс)', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Товар: ${escapeHtml(opts.product)} × ${opts.qty}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-    `Заказ: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Оплачено с баланса',
+    '✅ Деньги уже списаны с баланса клиента — можно выдавать товар',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Товар', `${opts.product} × ${opts.qty}`),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Заказ', opts.orderId, true),
+      opts.time ? adminRow('Время', opts.time) : '',
+    ],
+  )
 }
 
+/** Крипто-депозит дошёл — баланс пополнен. */
 export function adminDepositConfirmed(opts: {
   amountUsd: number
   network: string
   uid: number
+  orderId?: string
+  userLabel?: string
+  txHash?: string
   time?: string
 }): string {
-  return adminNotice('Депозит подтверждён', [
-    `Сумма: $${opts.amountUsd}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `UID: ${opts.uid}`,
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-  ])
+  return adminOpsNotice(
+    'ПОПОЛНЕНИЕ',
+    'Зачислено на баланс',
+    '✅ Транзакция подтверждена — средства на балансе клиента',
+    [
+      opts.userLabel ? adminRow('Клиент', opts.userLabel) : adminRow('UID', String(opts.uid)),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      opts.orderId ? adminRow('Заявка', opts.orderId, true) : '',
+      opts.txHash ? adminRow('TX', truncate(opts.txHash, 48), true) : '',
+      opts.time ? adminRow('Время', opts.time) : '',
+    ],
+  )
 }
 
+/** Крипто-оплата покупки дошла. */
 export function adminPaymentConfirmed(opts: {
   amountUsd: number
   network: string
   uid: number
+  orderId?: string
+  userLabel?: string
+  txHash?: string
   time?: string
 }): string {
-  return adminNotice('Оплата подтверждена', [
-    `Сумма: $${opts.amountUsd}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `UID: ${opts.uid}`,
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-  ])
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Оплата в сети получена',
+    '✅ Крипта пришла — можно выдавать товар (если ещё не автовыдача)',
+    [
+      opts.userLabel ? adminRow('Клиент', opts.userLabel) : adminRow('UID', String(opts.uid)),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      opts.orderId ? adminRow('Заказ', opts.orderId, true) : '',
+      opts.txHash ? adminRow('TX', truncate(opts.txHash, 48), true) : '',
+      opts.time ? adminRow('Время', opts.time) : '',
+    ],
+  )
 }
 
 export function adminDepositCancelled(opts: {
@@ -419,12 +481,17 @@ export function adminDepositCancelled(opts: {
   network: string
   orderId: string
 }): string {
-  return adminNotice('Депозит отменён', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `Заявка: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  return adminOpsNotice(
+    'ПОПОЛНЕНИЕ',
+    'Счёт отменён',
+    '✖ Клиент отменил или истёк таймер — перевода не было',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      adminRow('Заявка', opts.orderId, true),
+    ],
+  )
 }
 
 export function adminOrderCancelled(opts: {
@@ -435,15 +502,21 @@ export function adminOrderCancelled(opts: {
   network: string
   orderId: string
 }): string {
-  return adminNotice('Заказ отменён', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Товар: ${escapeHtml(opts.product)} × ${opts.qty}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `Заказ: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Счёт отменён',
+    '✖ Оплата не поступила — заказ закрыт без оплаты',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Товар', `${opts.product} × ${opts.qty}`),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      adminRow('Заказ', opts.orderId, true),
+    ],
+  )
 }
 
+/** @deprecated Дублировал server adminNewOrder — оставлен для совместимости, не вызывать. */
 export function adminCryptoOrder(opts: {
   userLabel: string
   product: string
@@ -452,26 +525,35 @@ export function adminCryptoOrder(opts: {
   network: string
   orderId: string
 }): string {
-  return adminNotice('Новый заказ (крипто)', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Товар: ${escapeHtml(opts.product)} × ${opts.qty}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `Заказ: <code>${escapeHtml(opts.orderId)}</code>`,
-  ])
+  return adminNewOrder({
+    userLabel: opts.userLabel,
+    amountUsd: opts.amountUsd,
+    network: opts.network,
+    orderId: opts.orderId,
+    product: opts.product,
+    qty: opts.qty,
+  })
 }
 
+/** Офлайн-режим без API — тот же смысл, что adminBalanceOrder. */
 export function adminBalancePurchase(opts: {
   userLabel: string
   product: string
   qty: number
   amountUsd: number
+  orderId?: string
 }): string {
-  return adminNotice('Новый заказ (баланс)', [
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Товар: ${escapeHtml(opts.product)} × ${opts.qty}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-  ])
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Оплачено с баланса',
+    '✅ Списано с баланса (локальный режим)',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Товар', `${opts.product} × ${opts.qty}`),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      opts.orderId ? adminRow('Заказ', opts.orderId, true) : '',
+    ],
+  )
 }
 
 export function adminNewTicket(opts: {
@@ -480,12 +562,17 @@ export function adminNewTicket(opts: {
   userLabel: string
   summary?: string
 }): string {
-  return adminNotice('Новая заявка в поддержку', [
-    `Заявка: <code>${escapeHtml(opts.ticketId)}</code>`,
-    `Тема: ${escapeHtml(opts.category)}`,
-    opts.summary ? `Кратко: ${escapeHtml(opts.summary)}` : '',
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-  ])
+  return adminOpsNotice(
+    'ПОДДЕРЖКА',
+    'Новая заявка',
+    '💬 Клиент открыл обращение',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Заявка', opts.ticketId, true),
+      adminRow('Тема', opts.category),
+      opts.summary ? adminRow('Кратко', opts.summary) : '',
+    ],
+  )
 }
 
 export function adminSupportMessage(opts: {
@@ -494,20 +581,30 @@ export function adminSupportMessage(opts: {
   excerpt: string
   filesNote?: string
 }): string {
-  return adminNotice('Сообщение в поддержку', [
-    opts.ticketId ? `Заявка: <code>${escapeHtml(opts.ticketId)}</code>` : '',
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    opts.filesNote ? escapeHtml(opts.filesNote) : '',
-    '',
-    escapeHtml(opts.excerpt || '—'),
-  ])
+  return adminOpsNotice(
+    'ПОДДЕРЖКА',
+    'Сообщение от клиента',
+    '💬 Ответьте в админке → Поддержка',
+    [
+      adminRow('Клиент', opts.userLabel),
+      opts.ticketId ? adminRow('Заявка', opts.ticketId, true) : '',
+      opts.filesNote ? escapeHtml(opts.filesNote) : '',
+      '',
+      escapeHtml(opts.excerpt || '—'),
+    ],
+  )
 }
 
 export function adminTicketClosed(opts: { ticketId: string; userLabel: string }): string {
-  return adminNotice('Заявка закрыта клиентом', [
-    `Заявка: <code>${escapeHtml(opts.ticketId)}</code>`,
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-  ])
+  return adminOpsNotice(
+    'ПОДДЕРЖКА',
+    'Заявка закрыта',
+    '✔ Клиент закрыл тикет',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Заявка', opts.ticketId, true),
+    ],
+  )
 }
 
 export function adminRefWithdraw(opts: {
@@ -517,13 +614,18 @@ export function adminRefWithdraw(opts: {
   network: string
   address: string
 }): string {
-  return adminNotice('Заявка на реф. вывод', [
-    `Заявка: <code>${escapeHtml(opts.refId)}</code>`,
-    `Клиент: ${escapeHtml(opts.userLabel)}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    `Сеть: ${escapeHtml(formatPaymentAsset(opts.network))}`,
-    `Адрес: <code>${escapeHtml(opts.address)}</code>`,
-  ])
+  return adminOpsNotice(
+    'РЕФЕРАЛКА',
+    'Заявка на вывод',
+    '⏳ Ожидает вашего решения в админке',
+    [
+      adminRow('Клиент', opts.userLabel),
+      adminRow('Заявка', opts.refId, true),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      adminRow('Сеть', formatPaymentAsset(opts.network)),
+      adminRow('Адрес', opts.address, true),
+    ],
+  )
 }
 
 export function adminRefApproved(opts: {
@@ -532,12 +634,17 @@ export function adminRefApproved(opts: {
   network?: string
   txid?: string
 }): string {
-  return adminNotice('Реф. вывод одобрен', [
-    `Заявка: <code>${escapeHtml(opts.refId)}</code>`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    opts.network ? `Сеть: ${escapeHtml(opts.network)}` : '',
-    opts.txid ? `TX: <code>${escapeHtml(truncate(opts.txid, 48))}</code>` : '',
-  ])
+  return adminOpsNotice(
+    'РЕФЕРАЛКА',
+    'Выплата отправлена',
+    '✅ Вы одобрили вывод',
+    [
+      adminRow('Заявка', opts.refId, true),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      opts.network ? adminRow('Сеть', opts.network) : '',
+      opts.txid ? adminRow('TX', truncate(opts.txid, 48), true) : '',
+    ],
+  )
 }
 
 export function adminRefRejected(opts: {
@@ -545,11 +652,16 @@ export function adminRefRejected(opts: {
   amountUsd: number
   reason?: string
 }): string {
-  return adminNotice('Реф. вывод отклонён', [
-    `Заявка: <code>${escapeHtml(opts.refId)}</code>`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    opts.reason ? `Причина: ${escapeHtml(truncate(opts.reason, 400))}` : '',
-  ])
+  return adminOpsNotice(
+    'РЕФЕРАЛКА',
+    'Вывод отклонён',
+    '✖ Сумма возвращена на реф. баланс клиента',
+    [
+      adminRow('Заявка', opts.refId, true),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      opts.reason ? adminRow('Причина', truncate(opts.reason, 400)) : '',
+    ],
+  )
 }
 
 export function adminSupportInbound(opts: {
@@ -557,11 +669,16 @@ export function adminSupportInbound(opts: {
   uid: number
   preview: string
 }): string {
-  return adminNotice('Сообщение в поддержку', [
-    `Клиент: ${escapeHtml(opts.userLabel)} · UID ${opts.uid}`,
-    '',
-    escapeHtml(opts.preview),
-  ])
+  return adminOpsNotice(
+    'ПОДДЕРЖКА',
+    'Новое сообщение',
+    '💬 Клиент написал в чат поддержки',
+    [
+      adminRow('Клиент', `${opts.userLabel} · UID ${opts.uid}`),
+      '',
+      escapeHtml(opts.preview),
+    ],
+  )
 }
 
 /** Pre-filled message when buyer requests delivery via support */
@@ -593,14 +710,21 @@ export function adminOrderDelivered(opts: {
   product: string
   amountUsd: number
   uid?: number | null
+  orderId?: string
   time?: string
 }): string {
-  return adminNotice('Заказ выдан', [
-    `Товар: ${escapeHtml(opts.product)}`,
-    `Сумма: $${opts.amountUsd.toFixed(2)}`,
-    opts.uid != null ? `UID: ${opts.uid}` : '',
-    opts.time ? `Время: ${escapeHtml(opts.time)}` : '',
-  ])
+  return adminOpsNotice(
+    'ПОКУПКА',
+    'Товар выдан',
+    '✅ Админ отметил выдачу вручную',
+    [
+      adminRow('Товар', opts.product),
+      adminRow('Сумма', `$${opts.amountUsd.toFixed(2)}`, true),
+      opts.orderId ? adminRow('Заказ', opts.orderId, true) : '',
+      opts.uid != null ? adminRow('UID', String(opts.uid)) : '',
+      opts.time ? adminRow('Время', opts.time) : '',
+    ],
+  )
 }
 
 // ── /start welcome ───────────────────────────────────────────────
