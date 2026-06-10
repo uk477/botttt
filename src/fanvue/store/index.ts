@@ -250,7 +250,7 @@ interface AppStore {
   upsertCategory: (c: Category) => void
   deleteCategory: (id: number) => void
   addLog: (log: Omit<PaymentLog, 'id'>) => void
-  addBroadcast: (text: string, sent_to: number, keyboard?: import('../../shared/broadcastKeyboard').BroadcastKeyboardInput) => void
+  addBroadcast: (text: string, sent_to: number, keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput) => void
   setSiteContent: (key: keyof SiteContent, value: string) => void
   markOrderForwarded: (orderId: string) => void
   pinProduct: (id: number) => void

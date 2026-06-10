@@ -163,7 +163,7 @@ export default function AdminSupport() {
         full_name: meta.full_name || realFull,
         photo_url: realPhoto,
         userLang: meta.lang,
-        messages, last: lastMsg, unread: unreadCount, activeTicket,
+        messages, last: lastMsg, unread: unreadCount, activeTicket: activeTicket ?? undefined,
       }]
     }
     return [...byUid.entries()].map(([uid, msgs]) => {
@@ -180,7 +180,7 @@ export default function AdminSupport() {
         messages: msgs,
         last,
         unread,
-        activeTicket: resolveActiveTicketForUid(uid, tickets, messages),
+        activeTicket: resolveActiveTicketForUid(uid, tickets, messages) ?? undefined,
       }
     }).sort((a, b) => new Date(b.last.created).getTime() - new Date(a.last.created).getTime())
   }, [messages, tickets, realUid, realName, realFull, realPhoto, unreadCount, lastMsg, supportUsers])

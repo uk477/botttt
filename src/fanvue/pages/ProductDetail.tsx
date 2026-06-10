@@ -208,6 +208,66 @@ export default function ProductDetail() {
     }
   }, [showPayment, payStep, id, products, qty, user?.uid])
 
+  const productId = product?.id ?? -1
+  const latestPendingCrypto = useMemo(() => {
+    if (!product) return null
+    return (
+      orders.find(
+        (o) =>
+          isPendingCryptoInvoice(o) &&
+          o.kind === 'buy' &&
+          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
+      ) ?? null
+    )
+  }, [orders, productId, products, product])
+
+  useEffect(() => {
+    if (payStep === 'pending_gate' && !latestPendingCrypto) {
+      setPayStep('crypto_net')
+    }
+  }, [payStep, latestPendingCrypto])
+
+  useEffect(() => {
+    if (!pendingOrder) return
+    const o = orders.find((x) => x.id === pendingOrder.id)
+    if (!o || !isPendingCryptoInvoice(o)) {
+      setPendingOrder(null)
+      if (payStep === 'crypto_pay') setPayStep('crypto_net')
+    }
+  }, [orders, pendingOrder, payStep])
+
+  useEffect(() => {
+    const st = location.state as {
+      resumeCryptoPay?: boolean
+      resumeOrderId?: string
+      returnTo?: string
+    } | null
+    if (!st?.resumeCryptoPay || !product) return
+    const pending =
+      findResumablePendingOrder(orders, st.resumeOrderId) ??
+      orders.find(
+        (o) =>
+          isPendingCryptoInvoice(o) &&
+          o.kind === 'buy' &&
+          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
+      ) ??
+      null
+    if (pending?.kind === 'buy') {
+      const net = pending.provider as CryptoNetwork
+      setShowPayment(true)
+      setSelectedNet(net)
+      setPendingOrder({
+        id: pending.id,
+        uniqueAmount: pending.amount,
+        createdAt: pending.created,
+        expiresAt: pending.expires_at,
+      })
+      setPayStep('crypto_pay')
+    }
+    const keepReturn = st.returnTo ? { returnTo: st.returnTo } : {}
+    navigate(location.pathname, { replace: true, state: keepReturn })
+  }, [location.state, productId, orders, products, location.pathname, navigate, product])
+
   if (!product) {
     return (
       <div className="fv-detail-shell fv-detail-missing">
@@ -230,17 +290,6 @@ export default function ProductDetail() {
   const hasEnoughBalance = apiPay ? balanceCheck?.ok === true : balance >= total
   const cryptoOption = CRYPTO_OPTIONS.find((c) => c.id === selectedNet)
 
-  const latestPendingCrypto = useMemo(() => {
-    return (
-      orders.find(
-        (o) =>
-          isPendingCryptoInvoice(o) &&
-          o.kind === 'buy' &&
-          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
-      ) ?? null
-    )
-  }, [orders, product.id, products])
-
   const resumePendingBuy = (o: Order) => {
     const net = o.provider as CryptoNetwork
     setSelectedNet(net)
@@ -253,46 +302,7 @@ export default function ProductDetail() {
     setPayStep('crypto_pay')
   }
 
-  useEffect(() => {
-    if (payStep === 'pending_gate' && !latestPendingCrypto) {
-      setPayStep('crypto_net')
-    }
-  }, [payStep, latestPendingCrypto])
-
-  useEffect(() => {
-    if (!pendingOrder) return
-    const o = orders.find((x) => x.id === pendingOrder.id)
-    if (!o || !isPendingCryptoInvoice(o)) {
-      setPendingOrder(null)
-      if (payStep === 'crypto_pay') setPayStep('crypto_net')
-    }
-  }, [orders, pendingOrder, payStep])
-
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
-
-  useEffect(() => {
-    const st = location.state as {
-      resumeCryptoPay?: boolean
-      resumeOrderId?: string
-      returnTo?: string
-    } | null
-    if (!st?.resumeCryptoPay || !product) return
-    let pending =
-      findResumablePendingOrder(orders, st.resumeOrderId) ??
-      orders.find(
-        (o) =>
-          isPendingCryptoInvoice(o) &&
-          o.kind === 'buy' &&
-          (o.product_id === product.id || resolveOrderProductId(o, products) === product.id),
-      ) ??
-      null
-    if (pending?.kind === 'buy') {
-      setShowPayment(true)
-      resumePendingBuy(pending)
-    }
-    const keepReturn = st.returnTo ? { returnTo: st.returnTo } : {}
-    navigate(location.pathname, { replace: true, state: keepReturn })
-  }, [location.state, product?.id, orders, products, location.pathname, navigate])
 
   const similar = products
     .filter((p) => p.active && p.id !== product.id && p.cat_id === product.cat_id)
@@ -861,7 +871,7 @@ export default function ProductDetail() {
             }}
           >
             <motion.div
-              className={`fv-pay-sheet${payStep === 'crypto_pay' ? ' fv-pay-sheet--full' : ''}`}
+              className="fv-pay-sheet"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}

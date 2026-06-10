@@ -83,7 +83,7 @@ async function postBroadcast(
     buttonText?: string
     keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
   },
-): Promise<BroadcastApiResult> {
+): Promise<BroadcastApiResult & { total?: number }> {
   const base = resolveApiBase()
   if (!base) return { ok: false, error: 'API disabled' }
   try {
@@ -143,9 +143,16 @@ export const api = {
   },
 
   purchaseBalance: async (b: object) => {
+    type ServerOrder = {
+      id?: unknown
+      created_at?: string | null
+      paid_at?: string | null
+      completed_at?: string | null
+      [k: string]: unknown
+    }
     const data = await post<{
       ok?: boolean
-      order?: Record<string, unknown>
+      order?: ServerOrder
       balance?: number
       required?: number
       spent?: number
@@ -153,13 +160,11 @@ export const api = {
       error?: string
     }>('/api/purchase/balance', b)
     if (!data) return { ok: false as const, error: 'no_response' }
-    const orderId = data.order && typeof data.order === 'object' && data.order.id != null
-      ? String(data.order.id)
-      : ''
+    const orderId = data.order && data.order.id != null ? String(data.order.id) : ''
     if (orderId && data.ok !== false) {
       return {
         ok: true as const,
-        order: { ...data.order, id: orderId },
+        order: { ...(data.order as ServerOrder), id: orderId },
         balance: data.balance,
         spent: data.spent,
         purchases: data.purchases,
@@ -212,8 +217,11 @@ export const api = {
   adminDeleteProduct:    (id: number)              => del(`/api/admin/product/${id}`),
   adminPinProduct:       (id: number)              => post(`/api/admin/product/${id}/pin`, {}),
   adminUnpinProduct:     (id: number)              => del(`/api/admin/product/${id}/pin`),
-  adminBroadcast:        (body: { text: string; keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput }) =>
-    postBroadcast(body),
+  adminBroadcast:        (body: {
+    text: string
+    buttonText?: string
+    keyboard?: import('../../../shared/broadcastKeyboard').BroadcastKeyboardInput
+  }) => postBroadcast(body),
   adminBroadcasts:       ()                        => get('/api/admin/broadcasts'),
   adminRefWithdrawals:   ()                        => get('/api/admin/ref-withdrawals'),
   adminSetRefStatus:     (id: string, b: object)   => patch(`/api/admin/ref-withdrawal/${id}`, b),
