@@ -40,12 +40,24 @@ router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
     const update = req.body as {
       message?: {
         chat: { id: number };
-        from?: { language_code?: string };
+        from?: {
+          id: number;
+          language_code?: string;
+          username?: string;
+          first_name?: string;
+          last_name?: string;
+        };
         text?: string;
       };
       callback_query?: {
         id: string;
-        from: { language_code?: string };
+        from: {
+          id: number;
+          language_code?: string;
+          username?: string;
+          first_name?: string;
+          last_name?: string;
+        };
         message?: { chat: { id: number }; message_id: number };
         data?: string;
       };
